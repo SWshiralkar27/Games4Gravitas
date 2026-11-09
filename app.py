@@ -195,11 +195,14 @@ def main():
     edited_book_themes = [line.strip() for line in edited_themes_text.splitlines() if line.strip()]
     st.caption(f"This run will use {len(edited_search_terms)} search terms and {len(edited_book_themes)} themes. Edits are for this run only and will reset next run.")
 
-    # --- Reset button: one click back to the working 17 terms + 5 themes ---
-    if st.button("Reset to default search + themes"):
+    # --- Reset button: must use on_click callback ---
+    # Directly setting st.session_state["edited_search_terms"] after the text_area
+    # was already drawn in this run causes StreamlitWidgetAlreadyInstantiatedError.
+    # The callback runs before the next run draws the widgets, so it is safe there.
+    def _do_reset():
         st.session_state["edited_search_terms"] = default_search
         st.session_state["edited_book_themes"] = default_themes
-        st.rerun()
+    st.button("Reset to default search + themes", on_click=_do_reset)
 
     # --- Run Digest: single button only ---
     if st.button("Run Digest", type="primary"):
