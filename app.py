@@ -31,17 +31,23 @@ except Exception:
     def save_history(urls):
         pass
 
+_GEMINI_IMPORT_ERROR = None
 try:
     from gemini_client import GeminiClient, GeminiUnavailable
-except Exception:
+except Exception as _e:
     GeminiClient = None
+    import traceback as _tb
+    _GEMINI_IMPORT_ERROR = f"{type(_e).__name__}: {_e}\n" + _tb.format_exc()[-2000:]
     class GeminiUnavailable(Exception):
         pass
 
+_GROK_IMPORT_ERROR = None
 try:
     from grok_client import GrokClient, GrokUnavailable
-except Exception:
+except Exception as _e:
     GrokClient = None
+    import traceback as _tb2
+    _GROK_IMPORT_ERROR = f"{type(_e).__name__}: {_e}\n" + _tb2.format_exc()[-2000:]
     class GrokUnavailable(Exception):
         pass
 
@@ -118,53 +124,6 @@ except Exception:
         return ""
 
 
-def _make_gemini_client():
-    """Try every common GeminiClient signature. Your gemini_client.py may define __init__ as (api_key, model), (model), (api_key), or ()."""
-    attempts = [
-        ("(api_key, model) positional", lambda: GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)),
-        ("(api_key=, model=) keyword", lambda: GeminiClient(api_key=GEMINI_API_KEY, model=GEMINI_MODEL)),
-        ("(model) positional", lambda: GeminiClient(GEMINI_MODEL)),
-        ("(model=) keyword", lambda: GeminiClient(model=GEMINI_MODEL)),
-        ("(api_key) positional", lambda: GeminiClient(GEMINI_API_KEY)),
-        ("(api_key=) keyword", lambda: GeminiClient(api_key=GEMINI_API_KEY)),
-        ("() no args - reads from config", lambda: GeminiClient()),
-    ]
-    last_err = None
-    for _name, _fn in attempts:
-        try:
-            _c = _fn()
-            return _c
-        except TypeError as _e:
-            last_err = _e
-            continue
-        except Exception as _e:
-            # If client raises GeminiUnavailable for missing key, keep trying other signatures may still fail same way
-            last_err = _e
-            continue
-    raise GeminiUnavailable(f"Could not create GeminiClient with any signature. Last error: {last_err}. Check gemini_client.py __init__ signature.")
-
-def _make_grok_client():
-    """Try every common GrokClient signature."""
-    attempts = [
-        ("() no args", lambda: GrokClient()),
-        ("(api_key, model) positional", lambda: GrokClient(GROK_API_KEY, GROK_MODEL)),
-        ("(api_key=, model=) keyword", lambda: GrokClient(api_key=GROK_API_KEY, model=GROK_MODEL)),
-        ("(model) positional", lambda: GrokClient(GROK_MODEL)),
-        ("(api_key) positional", lambda: GrokClient(GROK_API_KEY)),
-    ]
-    last_err = None
-    for _name, _fn in attempts:
-        try:
-            return _fn()
-        except TypeError as _e:
-            last_err = _e
-            continue
-        except Exception as _e:
-            last_err = _e
-            continue
-    raise GrokUnavailable(f"Could not create GrokClient: {last_err}")
-
-
 def main():
     st.set_page_config(page_title="Leadership AI Daily Digest v4.1", layout="wide")
     st.title("Leadership AI Daily Digest v4.1")
@@ -187,6 +146,17 @@ def main():
             except Exception as e:
                 st.error(f"History upload failed: {e}")
         ignore_hist = st.checkbox("Ignore history this run")
+        with st.expander("Debug: Import errors", expanded=False):
+            if _GEMINI_IMPORT_ERROR:
+                st.error("Gemini import failed:")
+                st.code(_GEMINI_IMPORT_ERROR[:2000])
+            else:
+                st.success("Gemini import OK")
+            if _GROK_IMPORT_ERROR:
+                st.error("Grok import failed:")
+                st.code(_GROK_IMPORT_ERROR[:2000])
+            else:
+                st.success("Grok import OK")
         st.divider()
         st.subheader("Effectiveness — last 5 weeks")
         try:
@@ -242,53 +212,6 @@ def main():
     edited_book_themes = [line.strip() for line in edited_themes_text.splitlines() if line.strip()]
     st.caption(f"This run will use {len(edited_search_terms)} search terms and {len(edited_book_themes)} themes. Edits are for this run only and will reset next run.")
 
-    # --- Reset button: must use on_click callback ---
-    # Directly setting st.session_state["edited_search_terms"] after the text_area
-    # was already drawn in this run causes StreamlitWidgetAlreadyInstantiatedError.
-    # The callback runs before the next run draws the widgets, so it is safe there.
-    def _do_reset():
-        st.session_state["edited_search_terms"] = default_search
-        st.session_state["edited_book_themes"] = default_themes
-    st.button("Reset to default search + themes", on_click=_do_reset)
-
-    # --- Debug: Test Serper directly, so you can see if Serper is the cause of 0 posts ---
-    with st.expander("Debug: Test Serper API now - why 0 posts?", expanded=False):
-        st.write(f"Search Provider in config: **{SEARCH_PROVIDER}**")
-        try:
-            from config import SERPER_API_KEY as _SERPER_KEY, BRAVE_API_KEY as _BRAVE_KEY
-            st.write(f"Serper key present: **{'Yes' if _SERPER_KEY else 'No'}** - length: {len(_SERPER_KEY) if _SERPER_KEY else 0} chars, starts with: `{(_SERPER_KEY[:4] + '...') if _SERPER_KEY else 'none'}`")
-            st.write(f"Brave key present: **{'Yes' if _BRAVE_KEY else 'No'}**")
-        except Exception as _e:
-            st.write(f"Could not read keys: {_e}")
-        st.write(f"Terms this run: {len(edited_search_terms)} - first term: `{edited_search_terms[0] if edited_search_terms else 'none'}`")
-        if st.button("Test Serper with first term"):
-            try:
-                import requests as _req
-                _test_term = edited_search_terms[0] if edited_search_terms else "Leadership AI"
-                _resp = _req.post(
-                    "https://google.serper.dev/search",
-                    headers={"X-API-KEY": _SERPER_KEY, "Content-Type": "application/json"},
-                    json={"q": _test_term, "num": 5},
-                    timeout=15,
-                )
-                st.write(f"Serper HTTP status: **{_resp.status_code}**")
-                if _resp.status_code == 200:
-                    _j = _resp.json()
-                    _org = _j.get("organic", [])
-                    st.success(f"Serper works. Got {len(_org)} organic results for '{_test_term}'. Discovery should not be 0. If Run still gives 0, discovery code is filtering them out.")
-                    for _r in _org[:3]:
-                        st.caption(f"- {_r.get('title','')[:80]} | {_r.get('link','')}")
-                elif _resp.status_code == 401:
-                    st.error("Serper 401 - API key invalid. Check Streamlit Secrets SERPER_API_KEY for extra spaces or line breaks.")
-                elif _resp.status_code == 402:
-                    st.error("Serper 402 - credits / quota exhausted. You need to top up Serper, switch to Brave free, or use Upload JSON mode for this run.")
-                elif _resp.status_code == 429:
-                    st.error("Serper 429 - rate limited. Wait 5 minutes and try 1 Run again.")
-                else:
-                    st.error(f"Serper error { _resp.status_code }: {_resp.text[:500]}")
-            except Exception as _e2:
-                st.error(f"Serper test failed with exception: {_e2}")
-
     # --- Run Digest: single button only ---
     if st.button("Run Digest", type="primary"):
         if not GEMINI_API_KEY:
@@ -296,118 +219,10 @@ def main():
             return
         if source_mode == "Auto-Discover (Uses API Keys)":
             with st.spinner("Fetching posts from APIs (may take 30s)..."):
-                # FIX: update lists IN PLACE so discovery (which already imported the old list) sees the edit.
-                # Re-assigning _cfg.SEARCH_TERMS = new_list breaks that reference and edit never reached discovery.
-                try:
-                    _cfg.SEARCH_TERMS[:] = edited_search_terms
-                except Exception:
-                    _cfg.SEARCH_TERMS = edited_search_terms
-                try:
-                    _cfg.BOOK_THEMES[:] = edited_book_themes
-                except Exception:
-                    _cfg.BOOK_THEMES = edited_book_themes
-                # Also update the copies imported into this file
-                try:
-                    SEARCH_TERMS[:] = edited_search_terms
-                except Exception:
-                    pass
-                try:
-                    BOOK_THEMES[:] = edited_book_themes
-                except Exception:
-                    pass
-                # Safe call: only pass edited terms if discovery actually expects them.
-                # Old code passed the list as first positional arg even if first param was 'limit' - that broke discovery.
-                try:
-                    import inspect as _inspect
-                    _sig = _inspect.signature(run_discovery)
-                    _params = list(_sig.parameters.keys())
-                    _has_terms_param = any(k in _params for k in ("search_terms", "terms", "queries", "keywords", "search_terms_list"))
-                    if _has_terms_param:
-                        # Find the exact param name discovery uses
-                        _term_param = next(k for k in ("search_terms", "terms", "queries", "keywords", "search_terms_list") if k in _params)
-                        try:
-                            content_items = asyncio.run(run_discovery(**{_term_param: edited_search_terms}))
-                        except TypeError:
-                            content_items = asyncio.run(run_discovery())
-                    else:
-                        # Discovery uses config.SEARCH_TERMS (already updated in place above) - call with no args
-                        content_items = asyncio.run(run_discovery())
-                except Exception as _disc_exc:
-                    st.error(f"Discovery raised an error (not just 0 results): {_disc_exc}")
-                    import traceback as _tb
-                    st.code(_tb.format_exc()[-2000:])
-                    content_items = []
-                st.caption(f"Discovery returned {len(content_items)} raw posts before dedupe / recency filter. If this is 0, your terms are too narrow or Serper returned only old posts.")
-                if len(content_items) == 0 and len(edited_search_terms) < 3:
-                    st.warning("You used only 1-2 terms. 1 generic term like 'Leadership AI' often returns only old posts that get filtered as >3 days old. Try 3-5 terms, or click 'Reset to default search + themes' to get back to the working 17 terms.")
-                # FALLBACK: Serper test proved Serper works (200, 5 results) but run_discovery returned 0.
-                # That means run_discovery is filtering everything out after Serper returns results.
-                # Do a direct Serper search here, without that strict site/recency filtering, so Run still works.
-                if len(content_items) == 0:
-                    st.warning("run_discovery returned 0 even though Serper works. Trying direct Serper fallback without strict filtering...")
-                    try:
-                        import requests as _req2
-                        from config import SERPER_API_KEY as _FALLBACK_KEY
-                        _fallback_items = []
-                        # Use first 5 terms only to save Serper credits
-                        for _term in edited_search_terms[:5]:
-                            try:
-                                _r = _req2.post(
-                                    "https://google.serper.dev/search",
-                                    headers={"X-API-KEY": _FALLBACK_KEY, "Content-Type": "application/json"},
-                                    json={"q": _term, "num": 10},
-                                    timeout=15,
-                                )
-                                if _r.status_code != 200:
-                                    st.caption(f"Fallback Serper for '{_term}' returned HTTP {_r.status_code}, skipping.")
-                                    continue
-                                _org = _r.json().get("organic", [])
-                                st.caption(f"Fallback: term '{_term}' -> {_r.status_code} with {len(_org)} organic results.")
-                                for _o in _org:
-                                    _url = _o.get("link", "")
-                                    _title = _o.get("title", "")
-                                    _snippet = _o.get("snippet", "")
-                                    if not _url or not _title:
-                                        continue
-                                    # Guess platform from URL, default to Web/LinkedIn for commenting
-                                    _plat = "LinkedIn"
-                                    _low = _url.lower()
-                                    if "x.com" in _low or "twitter.com" in _low:
-                                        _plat = "X"
-                                    elif "threads" in _low:
-                                        _plat = "Threads"
-                                    elif "facebook" in _low:
-                                        _plat = "Facebook"
-                                    elif "instagram" in _low:
-                                        _plat = "Instagram"
-                                    elif "medium.com" in _low:
-                                        _plat = "Medium"
-                                    elif "youtube" in _low:
-                                        _plat = "YouTube"
-                                    elif "linkedin" in _low:
-                                        _plat = "LinkedIn"
-                                    else:
-                                        _plat = "LinkedIn"
-                                    try:
-                                        _fallback_items.append(ContentItem(_plat, _title, _url, "Serper Fallback", "", _snippet, full_content=_snippet, comment_count=10, hours_since_post=12.0, is_question=("?" in (_title + _snippet))))
-                                    except Exception:
-                                        # Try keyword-style ContentItem if positional fails
-                                        try:
-                                            _fallback_items.append(ContentItem(platform=_plat, title=_title, url=_url, source="Serper Fallback", published="", snippet=_snippet, full_content=_snippet, comment_count=10, hours_since_post=12.0, is_question=("?" in (_title + _snippet))))
-                                        except Exception as _e3:
-                                            st.caption(f"Could not build item for {_url}: {_e3}")
-                                            continue
-                            except Exception as _e4:
-                                st.caption(f"Fallback for term '{_term}' failed: {_e4}")
-                                continue
-                        st.caption(f"Fallback found {len(_fallback_items)} items from direct Serper. Using them for this run.")
-                        if _fallback_items:
-                            content_items = _fallback_items
-                            st.success(f"Fallback worked: using {len(content_items)} posts from direct Serper. Original run_discovery filtering is too strict and needs fixing in discovery code.")
-                        else:
-                            st.error("Fallback also returned 0. That means Serper organic for these terms had no usable title/link.")
-                    except Exception as _e5:
-                        st.error(f"Fallback failed: {_e5}")
+                # Use edited terms for this run only
+                _cfg.SEARCH_TERMS = edited_search_terms
+                _cfg.BOOK_THEMES = edited_book_themes
+                content_items = asyncio.run(run_discovery())
         elif not content_items:
             st.warning("Please upload a JSON file first.")
             return
@@ -421,22 +236,16 @@ def main():
             st.warning("No candidates passed the relevance filter.")
             return
         try:
-            client = _make_gemini_client()
+            client = GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)
         except GeminiUnavailable as exc:
-            st.error(f"Gemini error: {exc}")
-            return
-        except TypeError as exc:
-            st.error(f"GeminiClient signature mismatch (TypeError): {exc}. Check gemini_client.py __init__ - tried (api_key, model), (model), (api_key), ().")
-            return
-        except Exception as exc:
             st.error(f"Gemini error: {exc}")
             return
         grok = None
         if dual and GROK_API_KEY:
             try:
-                grok = _make_grok_client()
+                grok = GrokClient()
                 st.info(f"Dual-engine ON: Gemini drafts → Grok ({GROK_MODEL}) reviews each recommended draft.")
-            except (GrokUnavailable, TypeError, Exception):
+            except GrokUnavailable:
                 st.warning("Grok key missing/invalid — running Gemini-only for this batch.")
                 grok = None
         elif dual and not GROK_API_KEY:
@@ -548,11 +357,11 @@ def main():
                             st.error("GEMINI_API_KEY missing.")
                         else:
                             try:
-                                client2 = _make_gemini_client()
+                                client2 = GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)
                                 grok2 = None
                                 if dual and GROK_API_KEY:
                                     try:
-                                        grok2 = _make_grok_client()
+                                        grok2 = GrokClient()
                                     except Exception:
                                         grok2 = None
                                 # Generate draft using existing generator
