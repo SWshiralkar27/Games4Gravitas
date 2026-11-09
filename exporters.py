@@ -13,7 +13,7 @@ def write_html(digest, path: Path):
     for p, items in digest.items_by_platform.items():
         parts.append(f"<h2>{esc(PLATFORM_LABEL.get(p, p))}</h2>")
         for n, it in enumerate(items, 1):
-            parts.append(f"<section class='card'><h3><a href='{esc(it.url)}'>{esc(it.title)}</a></h3>")
+            parts.append(f"<section class='card'><h3><a href='{esc(it.url)}' target='_blank' rel='noopener noreferrer'>{esc(it.title)}</a></h3>")
             parts.append(f"<p><span class='pill {esc(it.decision.value)}'>{esc(it.decision.value)}</span> <span class='meta'>Promo: {it.promotion_score} | Opp: {it.opportunity_score} | Sens: {it.sensitivity.value} | Conf: {it.confidence.value} | Theme: {esc(it.book_theme)}</span></p>")
             if it.repurpose_candidate:
                 parts.append(f"<p><span class='badge'>Repurpose idea: {esc(it.repurpose_reason)}</span></p>")
