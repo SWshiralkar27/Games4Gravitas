@@ -130,28 +130,38 @@ class GeminiClient:
             raise GeminiUnavailable(f"Gemini configure failed: {e}")
 
     def _call(self, prompt: str) -> str:
-        # Try old SDK first
+        """Call Gemini. Raises GeminiUnavailable with the REAL error instead of returning ''."""
+        _errors = []
+        # Try old SDK
         try:
             if self._model_obj is not None:
                 resp = self._model_obj.generate_content(prompt)
                 txt = getattr(resp, "text", "") or ""
-                if txt:
+                if txt and txt.strip():
                     return txt
                 # Try candidates
                 try:
-                    return resp.candidates[0].content.parts[0].text
-                except Exception:
-                    return ""
-        except Exception:
-            pass
+                    _cand = resp.candidates[0].content.parts[0].text if resp.candidates else ""
+                    if _cand and _cand.strip():
+                        return _cand
+                except Exception as _e:
+                    _errors.append(f"old SDK candidates: {_e}")
+                # If we got here, old SDK returned empty - record it, do NOT return "" yet, try new SDK
+                _errors.append(f"old SDK returned empty text (model={self.model}, prompt_len={len(prompt)}). resp={str(resp)[:300]}")
+        except Exception as _e:
+            _errors.append(f"old SDK generate_content failed: {_e}")
         # Try new SDK
         try:
             if hasattr(self, "_client"):
                 resp = self._client.models.generate_content(model=self.model, contents=prompt)
-                return getattr(resp, "text", "") or ""
-        except Exception as e:
-            raise GeminiUnavailable(f"Gemini generate failed: {e}")
-        return ""
+                txt2 = getattr(resp, "text", "") or ""
+                if txt2 and txt2.strip():
+                    return txt2
+                _errors.append(f"new SDK returned empty text (model={self.model}). resp={str(resp)[:300]}")
+        except Exception as _e2:
+            _errors.append(f"new SDK failed: {_e2}")
+        # Both failed or returned empty - raise with details so app.py can show it
+        raise GeminiUnavailable("Gemini returned empty / failed. Details: " + " | ".join(_errors) + f" | Model={self.model} Key_len={len(self.api_key) if self.api_key else 0}")
 
     def generate(self, prompt: str) -> str:
         return self._call(prompt)

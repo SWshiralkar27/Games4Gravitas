@@ -234,6 +234,23 @@ def _copy_button(label, text_to_copy, key):
     """
     st.components.v1.html(_html_code, height=180, scrolling=True)
 
+def _template_draft(item):
+    """Template draft when Gemini is down / returns empty - always gives user something copy-ready."""
+    _title = (getattr(item, "title", "") or "This post").strip()
+    _snippet = (getattr(item, "snippet", "") or getattr(item, "full_content", "") or "").strip()
+    # Take first sentence of snippet as hook context
+    import re as _re
+    _first = _re.split(r"(?<=[.!?])\s+", _snippet)[0] if _snippet else _title
+    _first = _first[:140]
+    _theme = getattr(item, "book_theme", "") or "Purposeful Rehearsal"
+    return f"""{_title} - this lands.
+
+Your point on "{_first}" is the exact moment where judgment matters more than output.
+
+In Games for Gravitas, I call this purposeful rehearsal - rehearse before you decide - so teams keep human judgment in the loop while AI speeds up execution.
+
+How are you building that rehearsal into your next decision?"""
+
 def _format_draft_comment(raw_text, item):
     """Format a raw draft into a clean, copy-ready comment: Hook + Insight + Book tie-in + Question."""
     txt = (raw_text or "").strip()
@@ -341,6 +358,17 @@ def main():
         except Exception as _e:
             st.write(f"Could not read keys: {_e}")
         st.write(f"Terms this run: {len(edited_search_terms)} - first term: `{edited_search_terms[0] if edited_search_terms else 'none'}`")
+        if st.button("Test Gemini now - show real error"):
+            try:
+                _tc = _make_gemini_client()
+                _resp = _tc.generate("Say hello in 5 words.") if hasattr(_tc, "generate") else _tc._call("Say hello in 5 words.")
+                if _resp and _resp.strip():
+                    st.success(f"Gemini works. Response: {_resp[:200]}")
+                else:
+                    st.error("Gemini returned empty with no error - this is the bug. See gemini_client fix.")
+            except Exception as _ge:
+                st.error(f"Gemini test failed with real error: {_ge}")
+                st.code(str(_ge)[:2000])
         if st.button("Test Serper with first term"):
             try:
                 import requests as _req
@@ -687,7 +715,7 @@ def main():
                                             elif hasattr(client2, "generate_content"):
                                                 _r = client2.generate_content(_direct_prompt)
                                                 _direct_text = getattr(_r, "text", "") or ""
-                                            if _direct_text.strip():
+                                            if _direct_text and _direct_text.strip():
                                                 it.comment = _direct_text.strip()
                                                 # Try Grok review for the direct draft too
                                                 if grok2 is not None:
@@ -702,9 +730,23 @@ def main():
                                                     except Exception:
                                                         pass
                                             else:
-                                                st.error(f"Direct Gemini fallback also returned empty. Gemini may be rate-limited or the snippet is too short.")
+                                                st.warning("Direct Gemini fallback returned empty. Using template draft so you still have something to copy - Gemini error is shown below.")
+                                                try:
+                                                    it.comment = _template_draft(it)
+                                                    it.grok_comment = ""
+                                                    it.grok_note = "Template - Gemini empty"
+                                                    it.grok_verdict = "Template"
+                                                except Exception as _te:
+                                                    st.error(f"Template draft failed: {_te}")
                                         except Exception as _e2:
-                                            st.error(f"Direct fallback failed: {_e2}")
+                                            st.warning(f"Direct Gemini fallback failed with real error: {_e2}. Using template draft so you still have something to copy.")
+                                            try:
+                                                it.comment = _template_draft(it)
+                                                it.grok_comment = ""
+                                                it.grok_note = "Template - Gemini error"
+                                                it.grok_verdict = "Template"
+                                            except Exception as _te2:
+                                                st.error(f"Template draft failed: {_te2}")
                                     if getattr(it, "comment", ""):
                                         # Format the draft for copying
                                         it.comment = _format_draft_comment(getattr(it, "comment", ""), it)
