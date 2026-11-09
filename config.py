@@ -138,3 +138,8 @@ CONFIDENCE_THRESHOLD = 0.5
 MIN_OPPORTUNITY_SCORE = 0
 MAX_THEME_COUNT = 5
 
+
+# --- Discovery constants: REQUIRED by discovery/* - missing these caused ImportError -> run_discovery always returned [] ---
+MAX_RESULTS_PER_SOURCE = int(os.getenv("MAX_RESULTS_PER_SOURCE", "5"))
+MEDIUM_TAGS = [t.strip() for t in os.getenv("MEDIUM_TAGS", "leadership,artificial-intelligence,ai,future-of-work,leadership-development").split(",") if t.strip()]
+DAYS_BACK = int(os.getenv("DAYS_BACK", "30"))

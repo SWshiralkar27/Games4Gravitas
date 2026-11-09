@@ -49,14 +49,19 @@ except Exception as _e:
     class GrokUnavailable(Exception):
         pass
 
+_DISCOVERY_IMPORT_ERROR = None
 try:
     from discovery import run_discovery
-except Exception:
+except Exception as _e_disc:
+    _DISCOVERY_IMPORT_ERROR = f"{type(_e_disc).__name__}: {_e_disc}"
     try:
         from discovery.web_search import run_discovery
-    except Exception:
-        async def run_discovery():
-            return []
+        _DISCOVERY_IMPORT_ERROR = None
+    except Exception as _e_disc2:
+        _DISCOVERY_IMPORT_ERROR = f"{type(_e_disc2).__name__}: {_e_disc2}"
+        async def run_discovery(*args, **kwargs):
+            # Do NOT silently return [] - raise so the log shows the real ImportError
+            raise ImportError(f"Discovery import failed: {_DISCOVERY_IMPORT_ERROR}. Check config.py has MAX_RESULTS_PER_SOURCE, MEDIUM_TAGS, DAYS_BACK.")
 
 try:
     from scoring.selection import dedupe_and_filter, select_candidates, enforce_theme_cap_and_diversity
@@ -337,11 +342,18 @@ def main():
 
     st.subheader("Step 1: Review search for this run")
     default_search = "\n".join(SEARCH_TERMS)
-    edited_search_text = st.text_area("Search terms for this run (one per line, edit or add your own)", value=default_search, height=180, key="edited_search_terms")
+    # Fix for: "widget with key edited_search_terms was created with a default value but also had its value set via Session State API"
+    # Rule: when a widget has a key, do NOT pass value= as well. Set session_state once if missing, then let the widget own it.
+    if "edited_search_terms" not in st.session_state:
+        st.session_state["edited_search_terms"] = default_search
+    edited_search_text = st.text_area("Search terms for this run (one per line, edit or add your own)", height=180, key="edited_search_terms")
     edited_search_terms = [line.strip() for line in edited_search_text.splitlines() if line.strip()]
-    _default_themes = BOOK_THEMES if isinstance(BOOK_THEMES, list) and BOOK_THEMES else ["Human Judgment", "Purposeful Rehearsal", "Centaur Leadership", "Rehearse Before You Decide", "Human Advantage"]
+    _default_themes_raw = BOOK_THEMES if isinstance(BOOK_THEMES, list) and BOOK_THEMES else ["Human Judgment", "Purposeful Rehearsal", "Centaur Leadership", "Rehearse Before You Decide", "Human Advantage"]
+    _default_themes = [t[0] if isinstance(t, (tuple, list)) else str(t) for t in _default_themes_raw]
     default_themes = "\n".join(_default_themes)
-    edited_themes_text = st.text_area("Book themes for this run (one per line, e.g. Human Judgment, Purposeful Rehearsal, Centaur Leadership)", value=default_themes, height=120, key="edited_book_themes")
+    if "edited_book_themes" not in st.session_state:
+        st.session_state["edited_book_themes"] = default_themes
+    edited_themes_text = st.text_area("Book themes for this run (one per line, e.g. Human Judgment, Purposeful Rehearsal, Centaur Leadership)", height=120, key="edited_book_themes")
     edited_book_themes = [line.strip() for line in edited_themes_text.splitlines() if line.strip()]
     st.caption(f"This run will use {len(edited_search_terms)} search terms and {len(edited_book_themes)} themes. Edits are for this run only and will reset next run.")
 
@@ -437,6 +449,9 @@ def main():
                     import traceback as _tb
                     st.code(_tb.format_exc()[-2000:])
                     content_items = []
+                if _DISCOVERY_IMPORT_ERROR:
+                    _log(f"Discovery import error was: {_DISCOVERY_IMPORT_ERROR}")
+                    st.error(f"Discovery import error: {_DISCOVERY_IMPORT_ERROR}")
                 _log(f"Discovery returned {len(content_items)} raw posts before dedupe / recency filter.")
                 if len(content_items) == 0 and len(edited_search_terms) < 3:
                     st.warning("You used only 1-2 terms. 1 generic term often returns only old posts that get filtered as >3 days old. Try 3-5 terms, or Reset.")
