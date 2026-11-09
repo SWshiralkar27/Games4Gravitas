@@ -204,6 +204,44 @@ def main():
         st.session_state["edited_book_themes"] = default_themes
     st.button("Reset to default search + themes", on_click=_do_reset)
 
+    # --- Debug: Test Serper directly, so you can see if Serper is the cause of 0 posts ---
+    with st.expander("Debug: Test Serper API now - why 0 posts?", expanded=False):
+        st.write(f"Search Provider in config: **{SEARCH_PROVIDER}**")
+        try:
+            from config import SERPER_API_KEY as _SERPER_KEY, BRAVE_API_KEY as _BRAVE_KEY
+            st.write(f"Serper key present: **{'Yes' if _SERPER_KEY else 'No'}** - length: {len(_SERPER_KEY) if _SERPER_KEY else 0} chars, starts with: `{(_SERPER_KEY[:4] + '...') if _SERPER_KEY else 'none'}`")
+            st.write(f"Brave key present: **{'Yes' if _BRAVE_KEY else 'No'}**")
+        except Exception as _e:
+            st.write(f"Could not read keys: {_e}")
+        st.write(f"Terms this run: {len(edited_search_terms)} - first term: `{edited_search_terms[0] if edited_search_terms else 'none'}`")
+        if st.button("Test Serper with first term"):
+            try:
+                import requests as _req
+                _test_term = edited_search_terms[0] if edited_search_terms else "Leadership AI"
+                _resp = _req.post(
+                    "https://google.serper.dev/search",
+                    headers={"X-API-KEY": _SERPER_KEY, "Content-Type": "application/json"},
+                    json={"q": _test_term, "num": 5},
+                    timeout=15,
+                )
+                st.write(f"Serper HTTP status: **{_resp.status_code}**")
+                if _resp.status_code == 200:
+                    _j = _resp.json()
+                    _org = _j.get("organic", [])
+                    st.success(f"Serper works. Got {len(_org)} organic results for '{_test_term}'. Discovery should not be 0. If Run still gives 0, discovery code is filtering them out.")
+                    for _r in _org[:3]:
+                        st.caption(f"- {_r.get('title','')[:80]} | {_r.get('link','')}")
+                elif _resp.status_code == 401:
+                    st.error("Serper 401 - API key invalid. Check Streamlit Secrets SERPER_API_KEY for extra spaces or line breaks.")
+                elif _resp.status_code == 402:
+                    st.error("Serper 402 - credits / quota exhausted. You need to top up Serper, switch to Brave free, or use Upload JSON mode for this run.")
+                elif _resp.status_code == 429:
+                    st.error("Serper 429 - rate limited. Wait 5 minutes and try 1 Run again.")
+                else:
+                    st.error(f"Serper error { _resp.status_code }: {_resp.text[:500]}")
+            except Exception as _e2:
+                st.error(f"Serper test failed with exception: {_e2}")
+
     # --- Run Digest: single button only ---
     if st.button("Run Digest", type="primary"):
         if not GEMINI_API_KEY:
@@ -230,23 +268,28 @@ def main():
                     BOOK_THEMES[:] = edited_book_themes
                 except Exception:
                     pass
-                # Try to pass edited terms explicitly if run_discovery accepts them
+                # Safe call: only pass edited terms if discovery actually expects them.
+                # Old code passed the list as first positional arg even if first param was 'limit' - that broke discovery.
                 try:
                     import inspect as _inspect
                     _sig = _inspect.signature(run_discovery)
                     _params = list(_sig.parameters.keys())
-                    if _params:
+                    _has_terms_param = any(k in _params for k in ("search_terms", "terms", "queries", "keywords", "search_terms_list"))
+                    if _has_terms_param:
+                        # Find the exact param name discovery uses
+                        _term_param = next(k for k in ("search_terms", "terms", "queries", "keywords", "search_terms_list") if k in _params)
                         try:
-                            content_items = asyncio.run(run_discovery(edited_search_terms))
+                            content_items = asyncio.run(run_discovery(**{_term_param: edited_search_terms}))
                         except TypeError:
-                            try:
-                                content_items = asyncio.run(run_discovery(search_terms=edited_search_terms))
-                            except TypeError:
-                                content_items = asyncio.run(run_discovery())
+                            content_items = asyncio.run(run_discovery())
                     else:
+                        # Discovery uses config.SEARCH_TERMS (already updated in place above) - call with no args
                         content_items = asyncio.run(run_discovery())
-                except Exception:
-                    content_items = asyncio.run(run_discovery())
+                except Exception as _disc_exc:
+                    st.error(f"Discovery raised an error (not just 0 results): {_disc_exc}")
+                    import traceback as _tb
+                    st.code(_tb.format_exc()[-2000:])
+                    content_items = []
                 st.caption(f"Discovery returned {len(content_items)} raw posts before dedupe / recency filter. If this is 0, your terms are too narrow or Serper returned only old posts.")
                 if len(content_items) == 0 and len(edited_search_terms) < 3:
                     st.warning("You used only 1-2 terms. 1 generic term like 'Leadership AI' often returns only old posts that get filtered as >3 days old. Try 3-5 terms, or click 'Reset to default search + themes' to get back to the working 17 terms.")
