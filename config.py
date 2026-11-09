@@ -88,3 +88,34 @@ CEA_MAX_WORDS = int(__import__("os").getenv("CEA_MAX_WORDS", "120"))
 COMMENT_MAX_WORDS = int(__import__("os").getenv("COMMENT_MAX_WORDS", "120"))
 HOOK_MIN_WORDS = int(__import__("os").getenv("HOOK_MIN_WORDS", "3"))
 
+# --- Book info: required by gemini_client.py ---
+BOOK_FULL_TITLE = "Games for Gravitas: A Playbook to Build Human Advantage in the Hybrid Intelligence Era"
+BOOK_TITLE = "Games for Gravitas"
+BOOK_SHORT_TITLE = "Games for Gravitas"
+BOOK_AUTHOR = "Shreekant Shiralkar"
+BOOK_LINK = "https://www.amazon.com/dp/B0DUMMY"
+BOOK_URL = BOOK_LINK
+
+# --- Scoring weights: required by gemini_client.py ---
+# v4 re-weighting: Book 25%, Context 30%, Engagement 25%, Audience 10%, Naturalness 10% = 1.0
+SCORE_WEIGHTS = {
+    "book_alignment": 0.25,
+    "contextual_relevance": 0.30,
+    "engagement": 0.25,
+    "audience_alignment": 0.10,
+    "promotion_naturalness": 0.10,
+}
+# Aliases that other scoring code might use
+PROMOTION_WEIGHTS = SCORE_WEIGHTS
+WEIGHTS = SCORE_WEIGHTS
+
+# --- Context minimums ---
+MIN_CONTEXT_CHARS = int(__import__("os").getenv("MIN_CONTEXT_CHARS", "100"))
+MIN_SNIPPET_CHARS = int(__import__("os").getenv("MIN_SNIPPET_CHARS", "50"))
+
+# --- Grok delays / timeouts: required by grok_client.py ---
+GROK_DELAY_SECONDS = float(__import__("os").getenv("GROK_DELAY_SECONDS", "2"))
+GROK_TIMEOUT_SECONDS = float(__import__("os").getenv("GROK_TIMEOUT_SECONDS", "30"))
+GEMINI_TIMEOUT_SECONDS = float(__import__("os").getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+MAX_RETRIES = int(__import__("os").getenv("MAX_RETRIES", "3"))
+
