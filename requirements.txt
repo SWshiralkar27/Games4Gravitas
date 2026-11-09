@@ -1,0 +1,7 @@
+streamlit
+aiohttp
+feedparser
+requests
+beautifulsoup4
+python-dotenv
+google-generativeai
