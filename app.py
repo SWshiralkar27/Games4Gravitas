@@ -293,6 +293,74 @@ def main():
                 st.caption(f"Discovery returned {len(content_items)} raw posts before dedupe / recency filter. If this is 0, your terms are too narrow or Serper returned only old posts.")
                 if len(content_items) == 0 and len(edited_search_terms) < 3:
                     st.warning("You used only 1-2 terms. 1 generic term like 'Leadership AI' often returns only old posts that get filtered as >3 days old. Try 3-5 terms, or click 'Reset to default search + themes' to get back to the working 17 terms.")
+                # FALLBACK: Serper test proved Serper works (200, 5 results) but run_discovery returned 0.
+                # That means run_discovery is filtering everything out after Serper returns results.
+                # Do a direct Serper search here, without that strict site/recency filtering, so Run still works.
+                if len(content_items) == 0:
+                    st.warning("run_discovery returned 0 even though Serper works. Trying direct Serper fallback without strict filtering...")
+                    try:
+                        import requests as _req2
+                        from config import SERPER_API_KEY as _FALLBACK_KEY
+                        _fallback_items = []
+                        # Use first 5 terms only to save Serper credits
+                        for _term in edited_search_terms[:5]:
+                            try:
+                                _r = _req2.post(
+                                    "https://google.serper.dev/search",
+                                    headers={"X-API-KEY": _FALLBACK_KEY, "Content-Type": "application/json"},
+                                    json={"q": _term, "num": 10},
+                                    timeout=15,
+                                )
+                                if _r.status_code != 200:
+                                    st.caption(f"Fallback Serper for '{_term}' returned HTTP {_r.status_code}, skipping.")
+                                    continue
+                                _org = _r.json().get("organic", [])
+                                st.caption(f"Fallback: term '{_term}' -> {_r.status_code} with {len(_org)} organic results.")
+                                for _o in _org:
+                                    _url = _o.get("link", "")
+                                    _title = _o.get("title", "")
+                                    _snippet = _o.get("snippet", "")
+                                    if not _url or not _title:
+                                        continue
+                                    # Guess platform from URL, default to Web/LinkedIn for commenting
+                                    _plat = "LinkedIn"
+                                    _low = _url.lower()
+                                    if "x.com" in _low or "twitter.com" in _low:
+                                        _plat = "X"
+                                    elif "threads" in _low:
+                                        _plat = "Threads"
+                                    elif "facebook" in _low:
+                                        _plat = "Facebook"
+                                    elif "instagram" in _low:
+                                        _plat = "Instagram"
+                                    elif "medium.com" in _low:
+                                        _plat = "Medium"
+                                    elif "youtube" in _low:
+                                        _plat = "YouTube"
+                                    elif "linkedin" in _low:
+                                        _plat = "LinkedIn"
+                                    else:
+                                        _plat = "LinkedIn"
+                                    try:
+                                        _fallback_items.append(ContentItem(_plat, _title, _url, "Serper Fallback", "", _snippet, full_content=_snippet, comment_count=10, hours_since_post=12.0, is_question=("?" in (_title + _snippet))))
+                                    except Exception:
+                                        # Try keyword-style ContentItem if positional fails
+                                        try:
+                                            _fallback_items.append(ContentItem(platform=_plat, title=_title, url=_url, source="Serper Fallback", published="", snippet=_snippet, full_content=_snippet, comment_count=10, hours_since_post=12.0, is_question=("?" in (_title + _snippet))))
+                                        except Exception as _e3:
+                                            st.caption(f"Could not build item for {_url}: {_e3}")
+                                            continue
+                            except Exception as _e4:
+                                st.caption(f"Fallback for term '{_term}' failed: {_e4}")
+                                continue
+                        st.caption(f"Fallback found {len(_fallback_items)} items from direct Serper. Using them for this run.")
+                        if _fallback_items:
+                            content_items = _fallback_items
+                            st.success(f"Fallback worked: using {len(content_items)} posts from direct Serper. Original run_discovery filtering is too strict and needs fixing in discovery code.")
+                        else:
+                            st.error("Fallback also returned 0. That means Serper organic for these terms had no usable title/link.")
+                    except Exception as _e5:
+                        st.error(f"Fallback failed: {_e5}")
         elif not content_items:
             st.warning("Please upload a JSON file first.")
             return
