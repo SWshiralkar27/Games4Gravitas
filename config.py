@@ -66,3 +66,25 @@ SATURATION_HIGH = 80
 RECENCY_BOOST_HOURS = 4
 MAX_PROMOTE_PER_THEME = 2
 MIN_THEMES_PER_RUN = 3
+
+# --- Limits and chars: required by models.py and other modules ---
+MAX_CONTEXT_CHARS = int(__import__("os").getenv("MAX_CONTEXT_CHARS", "6000"))
+MAX_SNIPPET_CHARS = int(__import__("os").getenv("MAX_SNIPPET_CHARS", "2000"))
+MAX_TITLE_CHARS = int(__import__("os").getenv("MAX_TITLE_CHARS", "300"))
+MAX_COMMENT_CHARS = int(__import__("os").getenv("MAX_COMMENT_CHARS", "800"))
+MAX_DRAFT_CHARS = int(__import__("os").getenv("MAX_DRAFT_CHARS", "800"))
+MIN_SNIPPET_CHARS = int(__import__("os").getenv("MIN_SNIPPET_CHARS", "50"))
+MAX_POSTS_PER_RUN = int(__import__("os").getenv("MAX_POSTS_PER_RUN", "30"))
+DISCOVERY_LIMIT = int(__import__("os").getenv("DISCOVERY_LIMIT", "30"))
+MAX_CANDIDATES = int(__import__("os").getenv("MAX_CANDIDATES", "30"))
+
+# Aliases that older code sometimes uses
+MAX_CONTENT_CHARS = MAX_CONTEXT_CHARS
+MAX_TEXT_CHARS = MAX_CONTEXT_CHARS
+CONTEXT_CHAR_LIMIT = MAX_CONTEXT_CHARS
+
+# --- Scoring / guardrail constants that other modules may import ---
+CEA_MAX_WORDS = int(__import__("os").getenv("CEA_MAX_WORDS", "120"))
+COMMENT_MAX_WORDS = int(__import__("os").getenv("COMMENT_MAX_WORDS", "120"))
+HOOK_MIN_WORDS = int(__import__("os").getenv("HOOK_MIN_WORDS", "3"))
+
