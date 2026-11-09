@@ -24,7 +24,7 @@ try:
 except Exception:
     # Fallbacks if config is missing any name
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     GEMINI_DELAY_SECONDS = 3.0
     BOOK_FULL_TITLE = "Games for Gravitas: A Playbook to Build Human Advantage in the Hybrid Intelligence Era"
     BOOK_THEMES = ["Human Judgment", "Purposeful Rehearsal", "Centaur Leadership", "Rehearse Before You Decide", "Human Advantage"]
@@ -107,7 +107,7 @@ class GeminiClient:
         if args and _model is None:
             _model = args[0]
         self.api_key = _api
-        self.model = _model or "gemini-2.0-flash"
+        self.model = _model or "gemini-3.8-flash"
         self._genai = None
         self._model_obj = None
         if not self.api_key:
@@ -161,6 +161,20 @@ class GeminiClient:
         except Exception as _e2:
             _errors.append(f"new SDK failed: {_e2}")
         # Both failed or returned empty - raise with details so app.py can show it
+        # If model is retired (404), try gemini-3.8-flash once before giving up
+        if "404" in " | ".join(_errors) and "no longer available" in " | ".join(_errors) and self.model != "gemini-3.8-flash":
+            try:
+                self.model = "gemini-3.8-flash"
+                if self._model_obj is not None:
+                    try:
+                        import google.generativeai as _genai2
+                        self._model_obj = _genai2.GenerativeModel(self.model)
+                    except Exception:
+                        pass
+                _retry = self._call(prompt)
+                return _retry
+            except Exception as _retry_err:
+                _errors.append(f"retry with gemini-3.8-flash failed: {_retry_err}")
         raise GeminiUnavailable("Gemini returned empty / failed. Details: " + " | ".join(_errors) + f" | Model={self.model} Key_len={len(self.api_key) if self.api_key else 0}")
 
     def generate(self, prompt: str) -> str:

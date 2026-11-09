@@ -222,17 +222,18 @@ def _make_grok_client():
 
 
 def _copy_button(label, text_to_copy, key):
-    """Render a Copy button that copies text_to_copy to clipboard via JS. Returns the HTML component."""
-    import html as _html
-    _esc = _html.escape(text_to_copy or "")
-    _key = key.replace(" ", "_").replace("/", "_")[:40]
-    _html_code = f"""
-    <div style="margin: 8px 0;">
-      <button onclick="navigator.clipboard.writeText(document.getElementById('copy-{_key}').innerText).then(()=>{{this.innerText='Copied!'; setTimeout(()=>{{this.innerText='{label}'}}, 1500)}})" style="background:#1a73e8;color:white;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:14px;">{label}</button>
-      <pre id="copy-{_key}" style="white-space:pre-wrap;background:#f6f8fa;padding:10px;border-radius:6px;border:1px solid #ddd;margin-top:8px;font-family:inherit;">{_esc}</pre>
-    </div>
-    """
-    st.components.v1.html(_html_code, height=180, scrolling=True)
+    """Native Streamlit copy - no iframe, so it cannot close the tab. Uses st.code (has copy icon) + download + selectable text_area."""
+    _txt = (text_to_copy or "").strip()
+    if not _txt:
+        st.caption("No draft to copy.")
+        return
+    # st.code has a built-in copy icon in the top-right - this is the most reliable copy in Streamlit
+    st.code(_txt, language="markdown")
+    st.caption("Use the copy icon on the top-right of the box above, or select the text below and Ctrl+C / Cmd+C.")
+    # Selectable text_area as second copy path - user can click, Ctrl+A, Ctrl+C
+    st.text_area("Select and copy (Ctrl+A, Ctrl+C):", value=_txt, height=110, key=f"copy-area-{key}")
+    # Download as .txt - third copy path, never closes the tab
+    st.download_button(f"Download draft as .txt", data=_txt, file_name=f"draft-{key[:30]}.txt", mime="text/plain", key=f"dl-{key}")
 
 def _template_draft(item):
     """Template draft when Gemini is down / returns empty - always gives user something copy-ready."""
@@ -656,8 +657,19 @@ def main():
         if not overridable:
             st.write("No Skip or Wait items to override in this run.")
         else:
-            st.write(f"{len(overridable)} Skip/Wait items below. Click one button at a time and wait for the draft to appear under that post.")
-            for idx, it in enumerate(overridable):
+            st.write(f"{len(overridable)} Skip/Wait items below. Preview has no buttons - buttons are here in Step 2. Use the filter to find a Medium / YouTube / LinkedIn post without scrolling all {len(overridable)}.")
+            _filter = st.text_input("Filter Step 2 by title, platform, or link (e.g. Medium, YouTube, LinkedIn, Geoff Woods):", value="", key="step2_filter")
+            _plat_filter = st.selectbox("Filter by platform:", options=["All"] + sorted(set(getattr(x, "platform", "Web") for x in overridable)), key="step2_plat")
+            _filtered = overridable
+            if _filter.strip():
+                _f = _filter.strip().lower()
+                _filtered = [x for x in _filtered if _f in (getattr(x, "title", "") or "").lower() or _f in (getattr(x, "platform", "") or "").lower() or _f in (getattr(x, "url", "") or "").lower() or _f in (getattr(x, "snippet", "") or "").lower()]
+            if _plat_filter != "All":
+                _filtered = [x for x in _filtered if getattr(x, "platform", "") == _plat_filter]
+            st.caption(f"Showing {len(_filtered)} of {len(overridable)} after filter. If you saw a Medium article in Preview, type 'Medium' above to find it.")
+            if not _filtered:
+                st.warning("No posts match that filter. Clear the filter to see all.")
+            for idx, it in enumerate(_filtered):
                 _plat_label = getattr(it, "platform", "Web")
                 with st.expander(f"{_plat_label} - {it.title[:90]} | Suggested: {it.decision.value} | Promo: {getattr(it, 'promotion_score', 0)} | Opp: {getattr(it, 'opportunity_score', 0)} | Why: {getattr(it, 'decision_reason', '')}"):
                     st.write(f"**Link:** {it.url}")
@@ -733,9 +745,32 @@ def main():
                                                 st.warning("Direct Gemini fallback returned empty. Using template draft so you still have something to copy - Gemini error is shown below.")
                                                 try:
                                                     it.comment = _template_draft(it)
-                                                    it.grok_comment = ""
-                                                    it.grok_note = "Template - Gemini empty"
-                                                    it.grok_verdict = "Template"
+                                                    # Try Grok on the template draft too, so you get Option B even when Gemini is down
+                                                    if grok2 is not None:
+                                                        try:
+                                                            _grok_prompt2 = f"Improve this comment for LinkedIn, keep it under 80 words, keep the book idea but make it less salesy. Comment: {it.comment}"
+                                                            _g2 = ""
+                                                            if hasattr(grok2, "generate"):
+                                                                _g2 = grok2.generate(_grok_prompt2) or ""
+                                                            elif hasattr(grok2, "generate_content"):
+                                                                _r2 = grok2.generate_content(_grok_prompt2)
+                                                                _g2 = getattr(_r2, "text", "") or ""
+                                                            if _g2 and _g2.strip():
+                                                                it.grok_comment = _format_draft_comment(_g2.strip(), it)
+                                                                it.grok_note = "Grok reviewed template"
+                                                                it.grok_verdict = "Improved"
+                                                            else:
+                                                                it.grok_comment = ""
+                                                                it.grok_note = "Grok empty"
+                                                                it.grok_verdict = "Template only"
+                                                        except Exception as _ge2:
+                                                            it.grok_comment = ""
+                                                            it.grok_note = f"Grok failed: {_ge2}"
+                                                            it.grok_verdict = "Template only"
+                                                    else:
+                                                        it.grok_comment = ""
+                                                        it.grok_note = "Grok not available - check GROK_API_KEY"
+                                                        it.grok_verdict = "Template only"
                                                 except Exception as _te:
                                                     st.error(f"Template draft failed: {_te}")
                                         except Exception as _e2:

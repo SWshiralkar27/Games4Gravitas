@@ -3,7 +3,7 @@ from pathlib import Path
 
 # --- API Keys: read from Streamlit Secrets / env vars. Never hard-code keys here ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_DELAY_SECONDS = float(os.getenv("GEMINI_DELAY_SECONDS", "3"))
 
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
