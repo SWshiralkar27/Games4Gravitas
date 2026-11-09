@@ -195,6 +195,12 @@ def main():
     edited_book_themes = [line.strip() for line in edited_themes_text.splitlines() if line.strip()]
     st.caption(f"This run will use {len(edited_search_terms)} search terms and {len(edited_book_themes)} themes. Edits are for this run only and will reset next run.")
 
+    # --- Reset button: one click back to the working 17 terms + 5 themes ---
+    if st.button("Reset to default search + themes"):
+        st.session_state["edited_search_terms"] = default_search
+        st.session_state["edited_book_themes"] = default_themes
+        st.rerun()
+
     # --- Run Digest: single button only ---
     if st.button("Run Digest", type="primary"):
         if not GEMINI_API_KEY:
@@ -202,10 +208,45 @@ def main():
             return
         if source_mode == "Auto-Discover (Uses API Keys)":
             with st.spinner("Fetching posts from APIs (may take 30s)..."):
-                # Use edited terms for this run only
-                _cfg.SEARCH_TERMS = edited_search_terms
-                _cfg.BOOK_THEMES = edited_book_themes
-                content_items = asyncio.run(run_discovery())
+                # FIX: update lists IN PLACE so discovery (which already imported the old list) sees the edit.
+                # Re-assigning _cfg.SEARCH_TERMS = new_list breaks that reference and edit never reached discovery.
+                try:
+                    _cfg.SEARCH_TERMS[:] = edited_search_terms
+                except Exception:
+                    _cfg.SEARCH_TERMS = edited_search_terms
+                try:
+                    _cfg.BOOK_THEMES[:] = edited_book_themes
+                except Exception:
+                    _cfg.BOOK_THEMES = edited_book_themes
+                # Also update the copies imported into this file
+                try:
+                    SEARCH_TERMS[:] = edited_search_terms
+                except Exception:
+                    pass
+                try:
+                    BOOK_THEMES[:] = edited_book_themes
+                except Exception:
+                    pass
+                # Try to pass edited terms explicitly if run_discovery accepts them
+                try:
+                    import inspect as _inspect
+                    _sig = _inspect.signature(run_discovery)
+                    _params = list(_sig.parameters.keys())
+                    if _params:
+                        try:
+                            content_items = asyncio.run(run_discovery(edited_search_terms))
+                        except TypeError:
+                            try:
+                                content_items = asyncio.run(run_discovery(search_terms=edited_search_terms))
+                            except TypeError:
+                                content_items = asyncio.run(run_discovery())
+                    else:
+                        content_items = asyncio.run(run_discovery())
+                except Exception:
+                    content_items = asyncio.run(run_discovery())
+                st.caption(f"Discovery returned {len(content_items)} raw posts before dedupe / recency filter. If this is 0, your terms are too narrow or Serper returned only old posts.")
+                if len(content_items) == 0 and len(edited_search_terms) < 3:
+                    st.warning("You used only 1-2 terms. 1 generic term like 'Leadership AI' often returns only old posts that get filtered as >3 days old. Try 3-5 terms, or click 'Reset to default search + themes' to get back to the working 17 terms.")
         elif not content_items:
             st.warning("Please upload a JSON file first.")
             return
