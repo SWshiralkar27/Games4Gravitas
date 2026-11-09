@@ -54,13 +54,38 @@ def main_streamlit():
             except Exception as e:
                 st.error(f"JSON Parse Error: {e}")
     else:
-        st.info("This will fetch from Medium, YouTube, and Web Search (LinkedIn, X, Threads, Facebook, Instagram) based on your API keys and SEARCH_TERMS.")
+        st.info("This will fetch from 【entity-Medium¦canonical_name=Medium】, YouTube, and Web Search (LinkedIn, X, Threads, 【entity-Facebook¦canonical_name=Facebook】, 【entity-Instagram¦canonical_name=Instagram】) based on your API keys and SEARCH_TERMS.")
+
+    # Step 1: Editable search for this run only, not saved
+    st.subheader("Step 1: Review search for this run")
+    default_search = "\n".join(SEARCH_TERMS)
+    edited_search_text = st.text_area(
+        "Search terms for this run (one per line, edit or add your own)",
+        value=default_search,
+        height=180,
+        key="edited_search_terms"
+    )
+    edited_search_terms = [line.strip() for line in edited_search_text.splitlines() if line.strip()]
+    default_themes = "\n".join(BOOK_THEMES)
+    edited_themes_text = st.text_area(
+        "Book themes for this run (one per line, e.g. Human Judgment, Purposeful Rehearsal, Centaur Leadership)",
+        value=default_themes,
+        height=120,
+        key="edited_book_themes"
+    )
+    edited_book_themes = [line.strip() for line in edited_themes_text.splitlines() if line.strip()]
+    st.caption(f"This run will use {len(edited_search_terms)} search terms and {len(edited_book_themes)} themes. Edits are for this run only and will reset next run.")
+
     if st.button("Run Digest", type="primary"):
         if not GEMINI_API_KEY:
             st.error("GEMINI_API_KEY is missing in Streamlit Secrets.")
             return
         if source_mode == "Auto-Discover (Uses API Keys)":
             with st.spinner("Fetching posts from APIs (may take 30s)..."):
+                # Use edited terms for this run only
+                import config as _cfg
+                _cfg.SEARCH_TERMS = edited_search_terms
+                _cfg.BOOK_THEMES = edited_book_themes
                 content_items = asyncio.run(run_discovery())
         elif not content_items:
             st.warning("Please upload a JSON file first.")
@@ -137,6 +162,7 @@ def main_streamlit():
         write_json(digest, json_path)
         save_history(x.url for x in selected)
         st.session_state["result"] = {"summary": summary, "html": html_path.read_text(encoding="utf-8"), "md": md_path.read_text(encoding="utf-8"), "json": json_path.read_text(encoding="utf-8"), "history": HISTORY_FILE.read_bytes() if HISTORY_FILE.exists() else b"", "posted_count": sum(1 for x in selected if x.decision in (Decision.A_PROMOTE, Decision.B_ENGAGE))}
+
     if "result" in st.session_state:
         res = st.session_state["result"]
         st.success(f"Done! {res['summary']}")
@@ -159,7 +185,6 @@ def main_streamlit():
             else:
                 rec = append_effectiveness(posted, int(replies))
                 st.success(f"Saved: {rec['date']}, {posted} posted, {replies} replies → {rec['yield']}% yield. {yield_label(rec['yield'])}")
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--diagnose", action="store_true")
