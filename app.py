@@ -118,6 +118,53 @@ except Exception:
         return ""
 
 
+def _make_gemini_client():
+    """Try every common GeminiClient signature. Your gemini_client.py may define __init__ as (api_key, model), (model), (api_key), or ()."""
+    attempts = [
+        ("(api_key, model) positional", lambda: GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)),
+        ("(api_key=, model=) keyword", lambda: GeminiClient(api_key=GEMINI_API_KEY, model=GEMINI_MODEL)),
+        ("(model) positional", lambda: GeminiClient(GEMINI_MODEL)),
+        ("(model=) keyword", lambda: GeminiClient(model=GEMINI_MODEL)),
+        ("(api_key) positional", lambda: GeminiClient(GEMINI_API_KEY)),
+        ("(api_key=) keyword", lambda: GeminiClient(api_key=GEMINI_API_KEY)),
+        ("() no args - reads from config", lambda: GeminiClient()),
+    ]
+    last_err = None
+    for _name, _fn in attempts:
+        try:
+            _c = _fn()
+            return _c
+        except TypeError as _e:
+            last_err = _e
+            continue
+        except Exception as _e:
+            # If client raises GeminiUnavailable for missing key, keep trying other signatures may still fail same way
+            last_err = _e
+            continue
+    raise GeminiUnavailable(f"Could not create GeminiClient with any signature. Last error: {last_err}. Check gemini_client.py __init__ signature.")
+
+def _make_grok_client():
+    """Try every common GrokClient signature."""
+    attempts = [
+        ("() no args", lambda: GrokClient()),
+        ("(api_key, model) positional", lambda: GrokClient(GROK_API_KEY, GROK_MODEL)),
+        ("(api_key=, model=) keyword", lambda: GrokClient(api_key=GROK_API_KEY, model=GROK_MODEL)),
+        ("(model) positional", lambda: GrokClient(GROK_MODEL)),
+        ("(api_key) positional", lambda: GrokClient(GROK_API_KEY)),
+    ]
+    last_err = None
+    for _name, _fn in attempts:
+        try:
+            return _fn()
+        except TypeError as _e:
+            last_err = _e
+            continue
+        except Exception as _e:
+            last_err = _e
+            continue
+    raise GrokUnavailable(f"Could not create GrokClient: {last_err}")
+
+
 def main():
     st.set_page_config(page_title="Leadership AI Daily Digest v4.1", layout="wide")
     st.title("Leadership AI Daily Digest v4.1")
@@ -374,16 +421,22 @@ def main():
             st.warning("No candidates passed the relevance filter.")
             return
         try:
-            client = GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)
+            client = _make_gemini_client()
         except GeminiUnavailable as exc:
+            st.error(f"Gemini error: {exc}")
+            return
+        except TypeError as exc:
+            st.error(f"GeminiClient signature mismatch (TypeError): {exc}. Check gemini_client.py __init__ - tried (api_key, model), (model), (api_key), ().")
+            return
+        except Exception as exc:
             st.error(f"Gemini error: {exc}")
             return
         grok = None
         if dual and GROK_API_KEY:
             try:
-                grok = GrokClient()
+                grok = _make_grok_client()
                 st.info(f"Dual-engine ON: Gemini drafts → Grok ({GROK_MODEL}) reviews each recommended draft.")
-            except GrokUnavailable:
+            except (GrokUnavailable, TypeError, Exception):
                 st.warning("Grok key missing/invalid — running Gemini-only for this batch.")
                 grok = None
         elif dual and not GROK_API_KEY:
@@ -495,11 +548,11 @@ def main():
                             st.error("GEMINI_API_KEY missing.")
                         else:
                             try:
-                                client2 = GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)
+                                client2 = _make_gemini_client()
                                 grok2 = None
                                 if dual and GROK_API_KEY:
                                     try:
-                                        grok2 = GrokClient()
+                                        grok2 = _make_grok_client()
                                     except Exception:
                                         grok2 = None
                                 # Generate draft using existing generator
