@@ -28,7 +28,7 @@ HISTORY_DAYS = int(os.getenv("HISTORY_DAYS", "90"))
 IGNORE_HISTORY = os.getenv("IGNORE_HISTORY", "false").lower() == "true"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 GEMINI_DELAY_SECONDS = float(os.getenv("GEMINI_DELAY_SECONDS", "3"))
 
 # Dual-engine: Grok reviews Gemini drafts. Optional — if no key, Gemini-only mode.
