@@ -350,7 +350,6 @@ def main():
                                     _snippet = _o.get("snippet", "")
                                     if not _url or not _title:
                                         continue
-                                    _plat = "LinkedIn"
                                     _low = _url.lower()
                                     if "x.com" in _low or "twitter.com" in _low:
                                         _plat = "X"
@@ -366,6 +365,14 @@ def main():
                                         _plat = "YouTube"
                                     elif "linkedin" in _low:
                                         _plat = "LinkedIn"
+                                    else:
+                                        # Fallback items are articles / blogs, not LinkedIn posts - show the domain
+                                        try:
+                                            from urllib.parse import urlparse as _up
+                                            _dom = _up(_url).netloc.replace("www.", "")
+                                            _plat = f"Web - {_dom}" if _dom else "Web"
+                                        except Exception:
+                                            _plat = "Web"
                                     try:
                                         _fallback_items.append(ContentItem(_plat, _title, _url, "Serper Fallback", "", _snippet, full_content=_snippet, comment_count=10, hours_since_post=12.0, is_question=("?" in (_title + _snippet))))
                                     except Exception:
@@ -500,12 +507,12 @@ def main():
         c2.download_button("Download Markdown", res["md"], "digest.md", "text/markdown")
         c3.download_button("Download JSON", res["json"], "digest.json", "application/json")
         st.download_button("Download seen_posts.txt", res["history"], "seen_posts.txt")
-        st.subheader("Preview")
-        st.caption("Links in Preview open in a new tab. Your Digest tab stays open.")
+        st.subheader("Preview - frozen at Run time")
+        st.caption("This Preview is the Digest built at Run time. Override drafts you generate in Step 2 below will NOT appear in this Preview - they appear in Step 2 itself and in 'Your override drafts' at the bottom. Links open in a new tab.")
         st.components.v1.html(res["html"], height=900, scrolling=True)
         st.divider()
         st.subheader("Step 2: Your decision - Override Skip / Wait")
-        st.caption("Scoring gives a suggestion. You decide. Sensitive stays blocked for safety. For Skip or Wait, click Generate draft anyway to make a draft even if the score was low.")
+        st.caption("Scoring gives a suggestion. You decide. Sensitive stays blocked for safety. For Skip or Wait, click Generate draft anyway to make a draft even if the score was low. Drafts appear here in Step 2, not in the frozen Preview above.")
         selected = st.session_state.get("selected_items", [])
         overridable = [x for x in selected if getattr(x, "decision", None) in (Decision.D_SKIP, Decision.C_WAIT)]
         sensitive_items = [x for x in selected if getattr(x, "decision", None) == Decision.C_SENSITIVE]
@@ -514,39 +521,116 @@ def main():
         if not overridable:
             st.write("No Skip or Wait items to override in this run.")
         else:
+            st.write(f"{len(overridable)} Skip/Wait items below. Click one button at a time and wait for the draft to appear under that post.")
             for idx, it in enumerate(overridable):
-                with st.expander(f"{it.platform} - {it.title[:90]} | Suggested: {it.decision.value} | Promo: {getattr(it, 'promotion_score', 0)} | Opp: {getattr(it, 'opportunity_score', 0)} | Why: {getattr(it, 'decision_reason', '')}"):
+                _plat_label = getattr(it, "platform", "Web")
+                with st.expander(f"{_plat_label} - {it.title[:90]} | Suggested: {it.decision.value} | Promo: {getattr(it, 'promotion_score', 0)} | Opp: {getattr(it, 'opportunity_score', 0)} | Why: {getattr(it, 'decision_reason', '')}"):
                     st.write(f"**Link:** {it.url}")
+                    st.write(f"**Platform label:** {_plat_label} - fallback items are web articles, not real LinkedIn posts, which is why they scored Skip.")
                     st.write(f"**Why suggested Skip/Wait:** {getattr(it, 'decision_reason', '')}")
+                    st.write(f"**Snippet:** {(getattr(it, 'snippet', '') or '')[:400]}")
                     btn_key = f"override-{idx}-{it.url}"
+                    # Show any previously generated override draft - this persists across reruns
+                    if st.session_state.get(f"override-done-{btn_key}") and getattr(it, "comment", ""):
+                        st.success("Override draft saved for this post:")
+                        st.write("**Option A - Gemini:**")
+                        st.code(getattr(it, "comment", ""))
+                        if getattr(it, "grok_comment", ""):
+                            st.write(f"**Option B - Grok reviewed ({getattr(it, 'grok_note', '')} / {getattr(it, 'grok_verdict', '')}):**")
+                            st.code(getattr(it, "grok_comment", ""))
+                        else:
+                            st.caption("Grok review unavailable for this item - Gemini draft only. Copy Option A.")
+                    elif st.session_state.get(f"override-done-{btn_key}") and not getattr(it, "comment", ""):
+                        st.warning("You clicked Generate, but no draft was saved. The generator returned empty for this post. Click Generate again to try the direct Gemini fallback below.")
                     if st.button("Generate draft anyway for this post", key=btn_key):
                         if not GEMINI_API_KEY:
                             st.error("GEMINI_API_KEY missing.")
                         else:
-                            try:
-                                client2 = _make_gemini_client()
-                                grok2 = None
-                                if dual and GROK_API_KEY:
+                            with st.spinner("Generating draft with Gemini..."):
+                                try:
+                                    client2 = _make_gemini_client()
+                                    grok2 = None
+                                    if dual and GROK_API_KEY:
+                                        try:
+                                            grok2 = _make_grok_client()
+                                        except Exception:
+                                            grok2 = None
+                                    # Force the generator to treat this as an Engage post - otherwise it may early-return for Skip
                                     try:
-                                        grok2 = _make_grok_client()
+                                        _orig_dec = it.decision
+                                        it.decision = Decision.B_ENGAGE
                                     except Exception:
-                                        grok2 = None
-                                generate_drafts(client2, it, variant=0, grok_client=grok2)
-                                st.session_state[f"override-done-{btn_key}"] = True
-                                st.success("Draft generated. See below and in Preview after re-download.")
-                                if getattr(it, "comment", ""):
-                                    st.write("**Option A - Gemini:**")
-                                    st.code(it.comment)
-                                if getattr(it, "grok_comment", ""):
-                                    st.write(f"**Option B - Grok reviewed ({getattr(it, 'grok_note', '')} / {getattr(it, 'grok_verdict', '')}):**")
-                                    st.code(it.grok_comment)
-                                elif getattr(it, "comment", ""):
-                                    st.caption("Grok review unavailable for this item - Gemini draft only.")
-                            except Exception as e:
-                                st.error(f"Override draft failed: {e}")
-                    if st.session_state.get(f"override-done-{btn_key}") and getattr(it, "comment", ""):
-                        st.write("**Saved override draft:**")
-                        st.code(it.comment)
+                                        _orig_dec = None
+                                    _gen_err = None
+                                    try:
+                                        generate_drafts(client2, it, variant=0, grok_client=grok2)
+                                    except Exception as _e:
+                                        _gen_err = str(_e)
+                                    # If generate_drafts did not set a comment, try a direct Gemini call - do not stay silent
+                                    if not getattr(it, "comment", ""):
+                                        st.caption(f"generate_drafts returned no draft ({_gen_err or 'empty'}). Trying direct Gemini fallback...")
+                                        try:
+                                            _themes_for_prompt = ", ".join([str(t) if not isinstance(t, (tuple, list)) else str(t[0]) for t in (BOOK_THEMES or [])])
+                                            _direct_prompt = f"""Write a short LinkedIn-style comment (max 80 words) for this post. Be helpful, add one idea from the book 'Games for Gravitas' about purposeful rehearsal / rehearse before you decide / centaur leadership, but do not hard-sell. End with an open question. Book themes: {_themes_for_prompt}. Post title: {it.title}. Post content: {(getattr(it, 'snippet', '') or '')[:800]}. Return only the comment, no extra text."""
+                                            _direct_text = ""
+                                            if hasattr(client2, "generate"):
+                                                _direct_text = client2.generate(_direct_prompt) or ""
+                                            elif hasattr(client2, "generate_content"):
+                                                _r = client2.generate_content(_direct_prompt)
+                                                _direct_text = getattr(_r, "text", "") or ""
+                                            if _direct_text.strip():
+                                                it.comment = _direct_text.strip()
+                                                # Try Grok review for the direct draft too
+                                                if grok2 is not None:
+                                                    try:
+                                                        _grok_prompt = f"Improve this comment for LinkedIn, keep it under 80 words, keep the book idea but make it less salesy. Comment: {it.comment}"
+                                                        if hasattr(grok2, "generate"):
+                                                            _g = grok2.generate(_grok_prompt) or ""
+                                                            if _g.strip():
+                                                                it.grok_comment = _g.strip()
+                                                                it.grok_note = "Direct fallback"
+                                                                it.grok_verdict = "Improved"
+                                                    except Exception:
+                                                        pass
+                                            else:
+                                                st.error(f"Direct Gemini fallback also returned empty. Gemini may be rate-limited or the snippet is too short.")
+                                        except Exception as _e2:
+                                            st.error(f"Direct fallback failed: {_e2}")
+                                    if getattr(it, "comment", ""):
+                                        st.session_state[f"override-done-{btn_key}"] = True
+                                        st.success("Draft generated for this post. It is saved below - copy it from here, not from the frozen Preview above.")
+                                        st.write("**Option A - Gemini:**")
+                                        st.code(getattr(it, "comment", ""))
+                                        if getattr(it, "grok_comment", ""):
+                                            st.write(f"**Option B - Grok reviewed ({getattr(it, 'grok_note', '')} / {getattr(it, 'grok_verdict', '')}):**")
+                                            st.code(getattr(it, "grok_comment", ""))
+                                        else:
+                                            st.caption("Grok review unavailable for this item - copy Option A.")
+                                    else:
+                                        st.error(f"Still no draft. Generator error was: {_gen_err or 'unknown'}. Try again in 30 seconds, or try a different post - this post may have too little content for Gemini to draft from.")
+                                except Exception as _e_outer:
+                                    st.error(f"Override failed: {_e_outer}")
+        # Combined override drafts - so you can copy all in one place
+        _override_drafts = [x for x in selected if getattr(x, "comment", "") and getattr(x, "decision", None) in (Decision.D_SKIP, Decision.C_WAIT, Decision.B_ENGAGE) and getattr(x, "decision_reason", "") != ""]
+        # Also include any item where override was clicked
+        _has_any_override = any(st.session_state.get(f"override-done-override-{i}-{x.url}") for i, x in enumerate(overridable))
+        if _has_any_override or any(getattr(x, "comment", "") for x in overridable):
+            st.divider()
+            st.subheader("Your override drafts - copy from here")
+            st.caption("These are the drafts you generated in Step 2. Copy them one by one and paste manually. They are not in the frozen Preview above.")
+            _md_lines = ["# Override drafts\n"]
+            for _it in overridable:
+                if getattr(_it, "comment", ""):
+                    st.write(f"**{_it.title[:80]}** - {_it.url}")
+                    st.code(getattr(_it, "comment", ""))
+                    if getattr(_it, "grok_comment", ""):
+                        st.write("Grok version:")
+                        st.code(getattr(_it, "grok_comment", ""))
+                    _md_lines.append(f"## {_it.title}\n{_it.url}\n\nGemini:\n{_it.comment}\n")
+                    if getattr(_it, "grok_comment", ""):
+                        _md_lines.append(f"\nGrok:\n{_it.grok_comment}\n")
+                    _md_lines.append("\n---\n")
+            st.download_button("Download override drafts as Markdown", "\n".join(_md_lines), "override_drafts.md", "text/markdown")
         st.divider()
         st.subheader("2. Low-cost effectiveness — 1 line per week (#12)")
         st.caption("After you post this batch, come back in 48h and enter 2 numbers. No per-comment tracking.")
