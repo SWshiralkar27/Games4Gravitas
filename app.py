@@ -371,6 +371,7 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
             pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_parsed_terms, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery: Step 2 Deep - checking body {done}/{total} (max 60s total, 6s per page) - weeding out title-matches where body does not fit...')))
             _log(f"Discovery: raw={stats.get('raw','?')} invalid_skipped={stats.get('invalid_skipped',0)} seen_filtered={stats.get('seen_filtered',0)} deduped={stats.get('deduped','?')} social={stats.get('social','?')} web_pruned={stats.get('web_pruned',0)} kept={stats.get('kept_for_assessment', len(pruned))} fallback={stats.get('fallback', False)}")
             st.session_state.discovered = pruned or []
+            st.session_state.discovery_raw_links = stats.get("raw_links", [])
             st.session_state.assessed = []
             _disc_prog.progress(1.0)
             _disc_status.success("Discovery done.")
