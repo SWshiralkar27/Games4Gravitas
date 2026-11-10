@@ -1,0 +1,7 @@
+Games for Gravitas - Book Core (always loaded)
+Thesis: AI automates routine analytics and data processing. True corporate upskilling must double down on non-automatable human skills, taught through active game-based experiential learning, designed with rigorous structure to deliver business ROI.
+Three grounding categories:
+1. Hybrid Intelligence Era - human edge vs automation (see 01)
+2. Passive L&D fails - experiential play embeds capability (see 02)
+3. ROI & Execution - 6 Pillars + debrief, measurable impact (see 03)
+Do not invent new data. Use only data from the selected category file.
