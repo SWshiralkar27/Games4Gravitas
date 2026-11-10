@@ -1,5 +1,5 @@
 
-# app.py - v4.7.1 - Fix: Seen uploader back on top + Discovery diagnostic
+# app.py - v4.7.2 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -138,84 +138,73 @@ def _fb_run_discovery(seen_urls=None):
     stats = {"raw": len(all_posts), "invalid_skipped": 0, "seen_filtered": seen_filtered, "deduped": len(deduped), "social": 0, "web_pruned": max(0, len(deduped)-len(kept)), "kept_for_assessment": len(kept), "fallback": True, "per_source": per_source}
     return kept, stats
 
-# ================= SIDEBAR - SEEN FIRST (v4.7.1 fix) =================
+# ================= SIDEBAR - COMPACT v4.7.2 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
-# 1. SEEN - TOP, never hidden by quota panel
-st.sidebar.subheader("Seen posts")
-seen_file = st.sidebar.file_uploader("Upload seen_posts.txt", type=["txt"], key="seen_uploader_v471")
+# 1. SEEN - TOP, always visible, compact
+st.sidebar.caption("Seen posts")
+seen_file = st.sidebar.file_uploader("Upload seen_posts.txt", type=["txt"], key="seen_uploader_v472")
 seen_urls = set()
 if seen_file is not None:
     try:
         seen_urls = _parse_seen(seen_file.read().decode("utf-8", errors="ignore"))
         st.sidebar.success(f"Seen loaded: {len(seen_urls)}")
-        st.sidebar.caption("Re-upload after every reboot - Streamlit forgets uploads on reboot.")
     except Exception as e:
-        st.sidebar.error(f"Seen file error: {e}")
+        st.sidebar.error(f"Seen error: {e}")
 else:
-    st.sidebar.caption("Upload seen_posts.txt here. If you skip, you may re-see old posts.")
-    st.sidebar.caption("After reboot, this box is empty again - re-upload.")
+    st.sidebar.caption("Re-upload after every reboot.")
 
-# 2. EFFECTIVENESS - restored
-st.sidebar.subheader("Effectiveness (optional, Sunday Snapshot)")
-eff_file = st.sidebar.file_uploader("Upload effectiveness.txt", type=["txt"], key="eff_uploader_v471")
-if eff_file is not None:
-    try:
-        txt = eff_file.read().decode("utf-8", errors="ignore")
-        st.sidebar.write(f"Effectiveness loaded: {len([l for l in txt.splitlines() if l.strip()])} lines")
-    except Exception as e:
-        st.sidebar.error(f"Effectiveness file error: {e}")
-
-st.sidebar.markdown("---")
-
-# 3. KEYS + DISCOVERY STATUS
-st.sidebar.write(f"Gemini Key: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'}")
-st.sidebar.write(f"Grok Key: {'OK' if os.getenv('GROK_API_KEY') else 'MISSING'}")
-st.sidebar.write(f"Gemini Model: {GEMINI_MODEL}")
-st.sidebar.write(f"Discovery file: {DISCOVERY_VERSION}")
+# 2. KEYS + DISCOVERY - one line each
+st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Grok: {'OK' if os.getenv('GROK_API_KEY') else 'MISSING'} | Model: {GEMINI_MODEL}")
+st.sidebar.caption(f"Discovery: {DISCOVERY_VERSION}")
 if not DISCOVERY_IS_NEW:
     if _DISCOVERY_ERR:
-        st.sidebar.error(f"Discovery import failed: {_DISCOVERY_ERR}")
-        with st.sidebar.expander("Show discovery import error (for fix)"):
-            st.sidebar.code(_DISCOVERY_ERR_FULL[:1500])
-        st.sidebar.info("App will use in-app fallback discovery so Run Discovery still works. To fix permanently: GitHub > discovery folder must contain exactly __init__.py, medium.py, web_search.py, youtube.py. No _init_.py, no **init**.py.")
+        st.sidebar.error("Discovery import failed - app uses fallback.")
+        with st.sidebar.expander("Tap to see discovery error - copy it"):
+            st.sidebar.code(_DISCOVERY_ERR_FULL[:2000])
+            st.sidebar.caption("Copy the text above and paste it here. Also check GitHub > discovery folder has exactly: __init__.py, medium.py, web_search.py, youtube.py")
     else:
-        st.sidebar.error(f"Discovery file is OLD ({DISCOVERY_VERSION}). Re-upload discovery/__init__.py to discovery/ folder (not root).")
+        st.sidebar.error(f"Discovery OLD ({DISCOVERY_VERSION}). Re-upload discovery/__init__.py to discovery/ folder.")
 
-st.sidebar.markdown("---")
-
-# 4. QUOTA PANEL - BELOW Seen, so it never hides Seen
-st.sidebar.subheader("Gemini Quota - Free Tier")
-manual = st.sidebar.number_input(
-    "Already used today in AI Studio (outside app, 0 if none)",
-    min_value=0, max_value=1000, step=1, key="quota_manual_input_v471"
-)
-if "quota_manual_applied_v471" not in st.session_state:
-    st.session_state.quota_manual_applied_v471 = -1
-if manual != st.session_state.quota_manual_applied_v471:
-    try:
-        set_manual_used(GEMINI_MODEL, int(manual))
-        st.session_state.quota_manual_applied_v471 = int(manual)
-    except Exception:
-        pass
+# 3. QUOTA - summary line + details in expander (so sidebar stays short)
 u = get_usage(GEMINI_MODEL)
-st.sidebar.write(f"{u['label']}: {u['used']}/{u['limit']} used today")
+st.sidebar.caption(f"Quota {u['label']}: {u['used']}/{u['limit']} used, {u['remaining']} left")
 st.sidebar.progress(min(1.0, u['used'] / u['limit']) if u['limit'] else 0)
-st.sidebar.write(f"Remaining: {u['remaining']}  |  Resets: {u['reset_label']}")
-st.sidebar.write(f"Assess needs {QUOTA_ASSESS_NEEDS}  |  Draft needs {QUOTA_DRAFT_NEEDS}  |  Test needs {QUOTA_TEST_NEEDS}")
 lvl = quota_level(GEMINI_MODEL, QUOTA_ASSESS_NEEDS)
 if lvl == "block":
-    st.sidebar.error(f"Quota OUT for {u['label']}. Use heuristic / template drafts only, or switch GEMINI_MODEL to {QUOTA_FALLBACK_MODEL} (500/day) in Secrets and reboot.")
+    st.sidebar.error("Quota OUT - heuristic / template only.")
 elif lvl == "warn":
-    st.sidebar.warning(f"Not enough for full Assess: need {QUOTA_ASSESS_NEEDS}, have {u['remaining']} left. Will use Gemini for {u['remaining']} posts + heuristic for rest.")
+    st.sidebar.warning(f"Need {QUOTA_ASSESS_NEEDS} for Assess, have {u['remaining']} left.")
 else:
-    st.sidebar.success(f"Safe to Assess: need {QUOTA_ASSESS_NEEDS}, have {u['remaining']} left.")
+    st.sidebar.success(f"Safe to Assess - {u['remaining']} left.")
+with st.sidebar.expander("Quota details + AI Studio sync"):
+    st.sidebar.write(f"Resets: {u['reset_label']}")
+    st.sidebar.write(f"Assess needs {QUOTA_ASSESS_NEEDS} | Draft {QUOTA_DRAFT_NEEDS} | Test {QUOTA_TEST_NEEDS}")
+    st.sidebar.write(f"If you used Gemini in AI Studio outside app, enter that number:")
+    manual = st.sidebar.number_input("Already used in AI Studio", min_value=0, max_value=1000, step=1, key="quota_manual_input_v472")
+    if "quota_manual_applied_v472" not in st.session_state:
+        st.session_state.quota_manual_applied_v472 = -1
+    if manual != st.session_state.quota_manual_applied_v472:
+        try:
+            set_manual_used(GEMINI_MODEL, int(manual))
+            st.session_state.quota_manual_applied_v472 = int(manual)
+        except Exception:
+            pass
+
+with st.sidebar.expander("Effectiveness (optional)"):
+    eff_file = st.sidebar.file_uploader("Upload effectiveness.txt", type=["txt"], key="eff_uploader_v472")
+    if eff_file is not None:
+        try:
+            txt = eff_file.read().decode("utf-8", errors="ignore")
+            st.sidebar.write(f"Loaded: {len([l for l in txt.splitlines() if l.strip()])} lines")
+        except Exception as e:
+            st.sidebar.error(f"Error: {e}")
 
 # ================= MAIN =================
 st.title("Leadership AI Daily Digest")
 st.write("Step 1: Run Discovery (0 Gemini calls) -> Assess (max 12 Gemini calls, rest heuristic) -> Step 2: Review drafts.")
 st.header("Step 1 - Discovery")
-if st.button("Run Discovery", key="run_discovery_btn_v471"):
+if st.button("Run Discovery", key="run_discovery_btn_v472"):
     # Use real discovery if available, else fallback
     if run_discovery_with_stats is not None:
         try:
@@ -240,7 +229,7 @@ if st.button("Run Discovery", key="run_discovery_btn_v471"):
 if st.session_state.discovered:
     st.write(f"Discovered: {len(st.session_state.discovered)} ready for Assess. Discovery uses 0 Gemini calls.")
 
-if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v471"):
+if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v472"):
     posts = st.session_state.discovered or []
     if not posts:
         st.warning("Run Discovery first.")
@@ -319,7 +308,7 @@ st.header("Step 2 - Review drafts")
 if not st.session_state.assessed:
     st.info("Run Discovery, then Assess posts.")
 else:
-    view = st.radio("Show", ["Recommended only (Promote + Engage)", "All", "Skipped / Wait only"], horizontal=True, key="view_radio_v471")
+    view = st.radio("Show", ["Recommended only (Promote + Engage)", "All", "Skipped / Wait only"], horizontal=True, key="view_radio_v472")
     filtered = st.session_state.assessed
     if view == "Recommended only (Promote + Engage)":
         filtered = [x for x in filtered if x.get("decision") in ("A_PROMOTE","B_ENGAGE")]
@@ -337,7 +326,7 @@ else:
             if post.get("decision") == "D_SENSITIVE":
                 st.warning("Sensitive - drafting blocked.")
             else:
-                key = f"draft_{idx}_{str(post.get('link',''))[:30]}_v471"
+                key = f"draft_{idx}_{str(post.get('link',''))[:30]}_v472"
                 if st.button("Generate draft anyway for this post", key=key):
                     usage2 = get_usage(GEMINI_MODEL)
                     if usage2["remaining"] <= 0:
@@ -361,10 +350,10 @@ else:
                         draft_a = format_draft(draft_a)
                     st.subheader("Option A - Gemini / Template (formatted)")
                     st.markdown(draft_a); st.code(draft_a, language="markdown")
-                    st.text_area("Copy Option A", value=draft_a, key=f"copy_a_{idx}_v471", height=150)
+                    st.text_area("Copy Option A", value=draft_a, key=f"copy_a_{idx}_v472", height=150)
 
 with st.expander("Debug"):
-    if st.button("Test Gemini now", key="test_gemini_btn_v471"):
+    if st.button("Test Gemini now", key="test_gemini_btn_v472"):
         u3 = get_usage(GEMINI_MODEL)
         if u3["remaining"] <= 0:
             st.error(f"Quota out: {u3['used']}/{u3['limit']} used. Resets {u3['reset_label']}. Do NOT keep clicking Test.")
