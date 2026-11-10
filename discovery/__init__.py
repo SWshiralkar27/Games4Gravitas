@@ -1,4 +1,3 @@
-
 # discovery/__init__.py - v4.7.3 - Import-safe (no top-level config import)
 # Path: discovery/__init__.py - upload to discovery/ folder, NOT root
 # FIX v4.7.3: Previous versions did "from config import ..." at top level.
@@ -6,7 +5,7 @@
 # and app showed "OLD - import failed" even though filenames were correct.
 # This version defines __VERSION__ FIRST and imports config LAZILY inside functions with defaults,
 # so it can never fail to import. Each source (web/medium/youtube) is also lazy + try/except.
-__VERSION__ = "4.9.1"
+__VERSION__ = "4.9.2"
 
 import re
 import asyncio
@@ -157,9 +156,9 @@ def prune_discovery(all_posts, seen_urls=None):
     }
     return kept, stats
 
-def run_discovery_with_stats(seen_urls=None, search_terms=None):
+def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None):
     seen_urls = set(seen_urls or set())
-    # v4.9.1: allow app UI to override search terms for this run. If None, use config.
+    # v4.9.2: allow app UI to override search terms for this run. If None, use config.
     if search_terms is None:
         search_terms = _get_config("SEARCH_TERMS", [
             "corporate upskilling AI",
@@ -265,7 +264,7 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None):
     # Only for kept candidates (max ~23), 0 Gemini calls. Weeds out title-matches where body does not fit.
     try:
         from discovery.deep import run_deep_discovery
-        kept2, deep_stats, weeded = run_deep_discovery(kept, max_posts=23)
+        kept2, deep_stats, weeded = run_deep_discovery(kept, max_posts=23, progress_cb=progress_cb)
         stats["deep_checked"] = deep_stats.get("deep_checked", 0)
         stats["deep_kept"] = deep_stats.get("deep_kept", len(kept2))
         stats["deep_weeded"] = deep_stats.get("deep_weeded", 0)
@@ -279,4 +278,3 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None):
         stats["deep_weeded"] = 0
         stats["deep_error"] = str(e)[:200]
         return kept, stats
-
