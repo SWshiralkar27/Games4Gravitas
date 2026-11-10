@@ -1,4 +1,4 @@
-# app.py - v4.9 - Compact sidebar + copyable discovery error + Discovery diagnostic
+# app.py - v4.9.1 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -10,7 +10,7 @@ import os, json, re
 
 import streamlit as st
 
-from config import GEMINI_MODEL, MODEL_QUOTAS, QUOTA_ASSESS_NEEDS, QUOTA_DRAFT_NEEDS, QUOTA_TEST_NEEDS, QUOTA_FALLBACK_MODEL
+from config import GEMINI_MODEL, MODEL_QUOTAS, QUOTA_ASSESS_NEEDS, QUOTA_DRAFT_NEEDS, QUOTA_TEST_NEEDS, QUOTA_FALLBACK_MODEL, SEARCH_TERMS
 
 # --- Quota ---
 try:
@@ -52,7 +52,7 @@ try:
     DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD")
     _has_norm = hasattr(_disc_mod, "_normalize_post")
     # Accept 4.4, 4.5, 4.6, 4.7 - all are good, do NOT call 4.5 OLD
-    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.9") or str(DISCOVERY_VERSION).startswith("4.")
+    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.9.1") or str(DISCOVERY_VERSION).startswith("4.")
     if not DISCOVERY_IS_NEW and str(DISCOVERY_VERSION) not in ("OLD",):
         # Version exists but not in list - still treat as OK if _normalize_post exists
         DISCOVERY_IS_NEW = _has_norm
@@ -96,15 +96,16 @@ def _parse_seen(text):
         else: seen.add(line)
     return seen
 
-def _fb_run_discovery(seen_urls=None):
+def _fb_run_discovery(seen_urls=None, search_terms=None):
     """Fallback if discovery/__init__.py import fails - same normalisation/pruning as v4.4"""
     seen_urls = seen_urls or set()
-    from config import SEARCH_TERMS, MAX_RESULTS_PER_SOURCE
+    from config import MAX_RESULTS_PER_SOURCE
+    _terms = search_terms if search_terms else SEARCH_TERMS
     all_posts = []
     per_source = {}
     try:
         from discovery.web_search import search_web
-        for q in SEARCH_TERMS:
+        for q in _terms:
             try:
                 res = search_web(q, MAX_RESULTS_PER_SOURCE)
                 if isinstance(res, list): all_posts.extend(res)
@@ -149,7 +150,7 @@ def _fb_run_discovery(seen_urls=None):
     return kept, stats
 
 
-# --- Grounding (v4.9) - loads from grounding/ folder in same repo, fail-open ---
+# --- Grounding (v4.9.1) - loads from grounding/ folder in same repo, fail-open ---
 def _load_grounding():
     """Load grounding files from grounding/ folder next to app.py. Returns dict, empty if missing."""
     try:
@@ -198,7 +199,7 @@ def _build_grounding_prompt(post, grounding):
     except Exception:
         return ("", "Category 1 - Hybrid Intelligence Era")
 
-# ================= SIDEBAR - COMPACT v4.9 =================
+# ================= SIDEBAR - COMPACT v4.9.1 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
 # 1. SEEN - TOP, always visible, compact
@@ -272,11 +273,39 @@ with st.sidebar.expander("Effectiveness (optional)"):
 st.title("Leadership AI Daily Digest")
 st.write("Step 1: Run Discovery (0 Gemini calls) -> Assess (max 12 Gemini calls, rest heuristic) -> Step 2: Review drafts.")
 st.header("Step 1 - Discovery")
+# --- Search terms editor (v4.9.1.1) - edit before Discovery, no config.py edit needed ---
+st.subheader("Search terms - edit before Discovery")
+st.caption("One term per line. Discovery searches each term. Edit / add / delete here for this run. To make it permanent, also update SEARCH_TERMS in config.py on GitHub.")
+try:
+    _default_terms = "\n".join(SEARCH_TERMS)
+except Exception:
+    _default_terms = "corporate upskilling AI\nAI upskilling program\nL&D AI training\nreskilling workforce AI"
+if "search_terms_text_v491" not in st.session_state:
+    st.session_state.search_terms_text_v491 = _default_terms
+search_terms_text = st.text_area("Search terms (one per line)", value=st.session_state.search_terms_text_v491, height=180, key="search_terms_editor_v491")
+# Keep session state in sync (text_area with key already does, but save parsed)
+_parsed_terms = [l.strip() for l in (search_terms_text or "").splitlines() if l.strip()]
+# Dedupe preserving order
+_seen_q = set(); _parsed_dedup = []
+for _q in _parsed_terms:
+    if _q not in _seen_q:
+        _seen_q.add(_q); _parsed_dedup.append(_q)
+_parsed_terms = _parsed_dedup
+st.caption(f"Using {_parsed_terms.__len__()} terms for this Discovery run. {', '.join(_parsed_terms[:3])}{' ...' if len(_parsed_terms) > 3 else ''}")
+col_reset, col_info = st.columns([1, 3])
+with col_reset:
+    if st.button("Reset to defaults", key="reset_terms_btn_v491"):
+        st.session_state.search_terms_text_v491 = _default_terms
+        st.rerun()
+with col_info:
+    st.caption("Tip: add site:linkedin.com / site:x.com / site:threads.net to a term to force social results. Remove a term to skip it for this run.")
+if not _parsed_terms:
+    st.warning("No search terms - add at least 1 term or click Reset to defaults.")
 if st.button("Run Discovery", key="run_discovery_btn_v472"):
     # Use real discovery if available, else fallback
     if run_discovery_with_stats is not None:
         try:
-            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls)
+            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_parsed_terms)
             _log(f"Discovery: raw={stats.get('raw','?')} invalid_skipped={stats.get('invalid_skipped',0)} seen_filtered={stats.get('seen_filtered',0)} deduped={stats.get('deduped','?')} social={stats.get('social','?')} web_pruned={stats.get('web_pruned',0)} kept={stats.get('kept_for_assessment', len(pruned))} fallback={stats.get('fallback', False)}")
             st.session_state.discovered = pruned or []
             st.session_state.assessed = []
@@ -289,13 +318,13 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
                         st.caption(w.get('link',''))
         except Exception as e:
             st.warning(f"Real discovery failed ({e}) - using fallback discovery.")
-            pruned, stats = _fb_run_discovery(seen_urls=seen_urls)
+            pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
             st.session_state.discovered = pruned or []
             st.session_state.assessed = []
             st.success(f"[SAFE FALLBACK USED] Discovery returned {stats.get('raw','?')} raw / pruned to {len(pruned)}. Seen filtered: {stats.get('seen_filtered',0)}.")
     else:
         st.warning("Discovery import failed - using fallback discovery (see sidebar error).")
-        pruned, stats = _fb_run_discovery(seen_urls=seen_urls)
+        pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
         st.session_state.discovered = pruned or []
         st.session_state.assessed = []
         st.success(f"[SAFE FALLBACK USED] Discovery returned {stats.get('raw','?')} raw / pruned to {len(pruned)}. Seen filtered: {stats.get('seen_filtered',0)}.")
@@ -370,7 +399,7 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
                     quota_hit = True; st.session_state.quota_hit = True; gclient = None
                 except Exception as e:
                     st.warning(f"Gemini analyse failed for {str(p.get('title',''))[:60]}: {e}")
-            # --- GROK FALLBACK FOR ASSESS (v4.9) ---
+            # --- GROK FALLBACK FOR ASSESS (v4.9.1) ---
             # If Gemini did not assess this post (quota out / 503 / no budget), try Grok before heuristic.
             # Grok has its own quota, so it works when Gemini is out.
             _grok_done = False
@@ -450,7 +479,7 @@ else:
                     usage2 = get_usage(GEMINI_MODEL)
                     if usage2["remaining"] <= 0:
                         st.warning(f"Gemini quota out ({usage2['used']}/{usage2['limit']} used). Trying Grok directly as fallback generator (separate quota).")
-                        # --- GROK FALLBACK FOR DRAFT (v4.9) ---
+                        # --- GROK FALLBACK FOR DRAFT (v4.9.1) ---
                         draft_a = None
                         try:
                             if GrokClient is not None:
@@ -481,7 +510,7 @@ else:
                             else: raise GeminiInitError("GeminiClient not available")
                         except GeminiQuotaExceeded as qe:
                             st.warning(f"{qe} Trying Grok fallback.")
-                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.9) ---
+                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.9.1) ---
                             try:
                                 if GrokClient is not None:
                                     _gdk2 = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
