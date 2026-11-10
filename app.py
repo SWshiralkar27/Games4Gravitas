@@ -35,7 +35,8 @@ except Exception:
     GrokClient = None
     class GrokQuotaExceeded(Exception): pass
     class GrokTransientError(Exception): pass
-    GROK_MODEL = "grok-3-mini"
+    GROK_MODEL = "llama-3.3-70b-versatile"
+
 
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
