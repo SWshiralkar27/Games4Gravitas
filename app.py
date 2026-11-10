@@ -42,7 +42,7 @@ try:
     DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD")
     _has_norm = hasattr(_disc_mod, "_normalize_post")
     # Accept 4.4, 4.5, 4.6, 4.7 - all are good, do NOT call 4.5 OLD
-    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7")
+    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.7.3") or str(DISCOVERY_VERSION).startswith("4.")
     if not DISCOVERY_IS_NEW and str(DISCOVERY_VERSION) not in ("OLD",):
         # Version exists but not in list - still treat as OK if _normalize_post exists
         DISCOVERY_IS_NEW = _has_norm
