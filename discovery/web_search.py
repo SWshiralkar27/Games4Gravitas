@@ -1,104 +1,133 @@
-"""Web search - FIXED: uses simple Serper queries like the fallback, not parenthesised OR which returns 0."""
-from __future__ import annotations
-import logging
-import aiohttp
-from config import SEARCH_PROVIDER, SERPER_API_KEY, BRAVE_API_KEY, GOOGLE_CSE_API_KEY, GOOGLE_CSE_ID, SEARCH_TERMS, MAX_RESULTS_PER_SOURCE
-from models import ContentItem, clean_text
+"""discovery/web_search.py — v4.2
+FIXES:
+- Simple queries only. NO parenthesised OR like
+  "term (site:linkedin.com/posts OR site:x.com ...)".
+  Serper returns 0 for those. Each query is one plain term or
+  one term + one site: filter.
+- detect_platform never defaults unknown to X. Unknown -> "Web - domain".
+"""
+import json
+import os
+from urllib.parse import urlparse
 
-log = logging.getLogger("digest")
+from config import MAX_RESULTS_PER_SOURCE, SEARCH_PROVIDER, SERPER_API_KEY, BRAVE_API_KEY
 
-def detect_platform(link: str) -> str:
-    l = (link or "").lower()
-    if "threads" in l:
-        return "Threads"
-    if "facebook.com" in l:
-        return "Facebook"
-    if "instagram.com" in l:
-        return "Instagram"
-    if "linkedin.com" in l:
+
+def detect_platform(url, title=""):
+    u = (url or "").lower()
+    if "linkedin.com" in u:
         return "LinkedIn"
-    if "x.com" in l or "twitter.com" in l:
+    if "x.com" in u or "twitter.com" in u:
         return "X"
-    if "medium.com" in l:
-        return "Medium"
-    if "youtube.com" in l or "youtu.be" in l:
+    if "threads.net" in u or "threads.com" in u:
+        return "Threads"
+    if "facebook.com" in u or "fb.com" in u:
+        return "Facebook"
+    if "instagram.com" in u:
+        return "Instagram"
+    if "youtube.com" in u or "youtu.be" in u:
         return "YouTube"
-    # Do NOT default to X - that mislabels generic web articles as X posts
+    if "medium.com" in u:
+        return "Medium"
+    # Never default to X. Show real source so pruning can drop it.
     try:
-        from urllib.parse import urlparse as _up
-        _dom = _up(link).netloc.replace("www.", "")
-        return f"Web - {_dom}" if _dom else "Web"
+        domain = urlparse(url).netloc.replace("www.", "") or "web"
     except Exception:
-        return "Web"
+        domain = "web"
+    return f"Web - {domain}"
 
-def _is_question(text: str) -> bool:
-    return "?" in (text or "")
 
-async def fetch_web_search(session: aiohttp.ClientSession, search_terms=None):
-    items = []
-    terms = list(search_terms) if search_terms else list(SEARCH_TERMS)
-    if not terms:
-        log.warning("fetch_web_search: no SEARCH_TERMS")
-        return []
-    if SEARCH_PROVIDER == "serper" and not SERPER_API_KEY:
-        log.warning("fetch_web_search: SERPER_API_KEY missing")
-        return []
-    if SEARCH_PROVIDER == "brave" and not BRAVE_API_KEY:
-        return []
-    if SEARCH_PROVIDER == "cse" and not (GOOGLE_CSE_API_KEY and GOOGLE_CSE_ID):
-        return []
-    # Use the SAME queries as the fallback that works: plain + site: filters, each num=5
-    # Old code used: "term (site:linkedin.com/posts OR site:x.com ...)" - Serper returns 0 for that syntax.
+def build_simple_queries(search_terms):
+    """Max 8 queries per run. Simple, Serper-friendly."""
     queries = []
-    for term in terms[:3]:
+    terms = list(search_terms or [])[:4]
+    for term in terms:
         queries.append(term)
-        queries.append(f"{term} site:linkedin.com")
-        queries.append(f"{term} site:youtube.com")
-        queries.append(f"{term} site:medium.com")
-    for term in terms[3:5]:
-        queries.append(term)
-    queries = queries[:8]
-    for query in queries:
-        try:
-            if SEARCH_PROVIDER == "serper":
-                headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-                async with session.post("https://google.serper.dev/search", json={"q": query, "num": MAX_RESULTS_PER_SOURCE}, headers=headers, timeout=15) as r:
-                    if r.status != 200:
-                        log.error("Serper %s -> HTTP %s", query, r.status)
-                        continue
-                    data = await r.json()
-                    for row in data.get("organic", []):
-                        link = row.get("link", "")
-                        snip = clean_text(row.get("snippet", ""))
-                        title = row.get("title", "")
-                        if not link or not title:
-                            continue
-                        plat = detect_platform(link)
-                        items.append(ContentItem(plat, title, link, "Serper Search", "", snip, full_content=snip, is_question=_is_question(title + " " + snip)))
-            elif SEARCH_PROVIDER == "brave":
-                headers = {"Accept": "application/json", "X-Subscription-Token": BRAVE_API_KEY}
-                async with session.get("https://api.search.brave.com/res/v1/web/search", params={"q": query, "count": MAX_RESULTS_PER_SOURCE}, headers=headers, timeout=15) as r:
-                    data = await r.json()
-                    for row in data.get("web", {}).get("results", []):
-                        link = row.get("url", "")
-                        snip = clean_text(row.get("description", ""))
-                        title = row.get("title", "")
-                        if not link or not title:
-                            continue
-                        plat = detect_platform(link)
-                        items.append(ContentItem(plat, title, link, "Brave Search", "", snip, full_content=snip, is_question=_is_question(title + " " + snip)))
-            elif SEARCH_PROVIDER == "cse":
-                async with session.get("https://www.googleapis.com/customsearch/v1", params={"key": GOOGLE_CSE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "num": MAX_RESULTS_PER_SOURCE}, timeout=15) as r:
-                    data = await r.json()
-                    for row in data.get("items", []):
-                        link = row.get("link", "")
-                        snip = clean_text(row.get("snippet", ""))
-                        title = row.get("title", "")
-                        if not link or not title:
-                            continue
-                        plat = detect_platform(link)
-                        items.append(ContentItem(plat, title, link, "Google CSE", "", snip, full_content=snip, is_question=_is_question(title + " " + snip)))
-        except Exception as ex:
-            log.error("Web Search query '%s' failed: %s", query, ex)
-    log.info("fetch_web_search returned %d items from %d queries", len(items), len(queries))
-    return items
+    # One site-filtered query per term, rotating sites so we get social first.
+    sites = ["site:linkedin.com", "site:x.com", "site:threads.net", "site:linkedin.com"]
+    for term, site in zip(terms, sites):
+        queries.append(f"{term} {site}")
+    return queries[:8]
+
+
+def _serper_search(query, num=5):
+    try:
+        import requests
+    except Exception:
+        return []
+    if not SERPER_API_KEY:
+        return []
+    try:
+        r = requests.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+            json={"q": query, "num": num},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        out = []
+        for item in data.get("organic", [])[:num]:
+            link = item.get("link", "")
+            out.append({
+                "title": item.get("title", ""),
+                "link": link,
+                "snippet": item.get("snippet", ""),
+                "platform": detect_platform(link, item.get("title", "")),
+                "source": "serper",
+                "query": query,
+                "comments": 0,
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _brave_search(query, num=5):
+    try:
+        import requests
+    except Exception:
+        return []
+    if not BRAVE_API_KEY:
+        return []
+    try:
+        r = requests.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"X-Subscription-Token": BRAVE_API_KEY, "Accept": "application/json"},
+            params={"q": query, "count": num},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        out = []
+        for item in (data.get("web", {}).get("results", []) or [])[:num]:
+            link = item.get("url", "")
+            out.append({
+                "title": item.get("title", ""),
+                "link": link,
+                "snippet": item.get("description", ""),
+                "platform": detect_platform(link, item.get("title", "")),
+                "source": "brave",
+                "query": query,
+                "comments": 0,
+            })
+        return out
+    except Exception:
+        return []
+
+
+def search_web(search_terms):
+    """Returns (posts, per_source_counts)."""
+    queries = build_simple_queries(search_terms)
+    posts = []
+    counts = {}
+    for q in queries:
+        if SEARCH_PROVIDER == "brave":
+            batch = _brave_search(q, num=MAX_RESULTS_PER_SOURCE)
+        else:
+            batch = _serper_search(q, num=MAX_RESULTS_PER_SOURCE)
+        counts[q] = len(batch)
+        posts.extend(batch)
+    return posts, counts
