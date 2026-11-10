@@ -11,6 +11,7 @@ YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 # Missing imports that web_search.py / youtube.py need - empty is fine if you use Serper, just needs to exist
 BRAVE_API_KEY = _os.getenv("BRAVE_API_KEY", "")
 DAYS_BACK = 7
+MAX_CONTEXT_CHARS = 2000
 # Search terms - same as v4.6, do not use parenthesised OR / Serper queries
 SEARCH_TERMS = [
     "corporate upskilling AI",
