@@ -1,3 +1,4 @@
+
 # quota.py - v4.7 - Gemini quota guard
 # Root: quota.py
 # Tracks Gemini usage per model, per Pacific day (reset = midnight PT).
@@ -227,3 +228,15 @@ def quota_message(model, needed=1):
     if u["remaining"] < needed:
         return f"Not enough quota for full action: need {needed}, have {u['remaining']} left on {u['label']} ({u['used']}/{u['limit']} used). Will use Gemini for {u['remaining']} and heuristic for the rest."
     return f"Quota OK: {u['used']}/{u['limit']} used, {u['remaining']} left on {u['label']}."
+
+
+def quota_reboot_warning(model):
+    """After a Streamlit reboot, local counter resets to 0 even if Google quota is already used.
+    If used==0 but user may have used Gemini before reboot, warn to sync from AI Studio."""
+    u = get_usage(model)
+    # If file was just created today (used==0) we cannot know if Google is also 0.
+    # Show a gentle reminder only when used==0 - user can ignore if truly 0.
+    if u["used"] == 0:
+        return "Counter reset on reboot? If you used Gemini today BEFORE this reboot (AI Studio / earlier Assess), enter that number in 'Already used in AI Studio' below, or the app will think you have 20 left when Google says 0."
+    return ""
+
