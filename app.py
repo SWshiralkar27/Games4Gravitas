@@ -74,7 +74,17 @@ try:
     from scoring.selection import heuristic_assess, select_for_gemini, template_draft
 except Exception:
     def heuristic_assess(p):
-        return {"decision": "D_SKIP", "promo": 0, "opp": 0.0, "theme": "other", "reason": "Heuristic unavailable."}
+        # Fallback heuristic when scoring/selection.py import fails - keyword check, not always Skip
+        _hay = ((p.get("title") or "") + " " + (p.get("snippet") or "") + " " + (p.get("_deep_text") or "")).lower()
+        _strong = ["upskill", "reskill", "corporate training", "l&d", "learning and development", "hybrid intelligence", "human edge", "game-based", "experiential learning"]
+        _medium = ["ai training", "ai upskilling", "leadership", "coaching", "workforce", "future of work", "adaptability", "critical thinking"]
+        _s = sum(1 for k in _strong if k in _hay)
+        _m = sum(1 for k in _medium if k in _hay)
+        if _s >= 1:
+            return {"decision": "A_PROMOTE", "promo": 70, "opp": 6.5, "theme": "upskilling", "reason": f"Heuristic fallback - strong keyword ({_s} strong) - title/body matched upskilling / human edge."}
+        if _m >= 2:
+            return {"decision": "B_ENGAGE", "promo": 55, "opp": 5.0, "theme": "leadership", "reason": f"Heuristic fallback - medium keywords ({_m}) - leadership / AI training."}
+        return {"decision": "D_SKIP", "promo": 0, "opp": 0.0, "theme": "other", "reason": "Heuristic fallback - no AI/upskilling keywords in title/snippet/body."}
     def select_for_gemini(posts): return (posts or [])[:12]
     def template_draft(p, a=None): return format_draft("Template draft unavailable.")
 
