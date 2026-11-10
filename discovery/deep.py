@@ -1,4 +1,4 @@
-# discovery/deep.py - v4.8 - Step 2 Deep Discovery (0 Gemini calls)
+# discovery/deep.py - v4.9.2 - Step 2 Deep Discovery (0 Gemini calls)
 # Path: discovery/deep.py - upload to discovery/ folder
 # Step 1 (discovery/__init__.py) finds title-matches. Step 2 (this file) fetches the BODY
 # for the kept candidates only (max ~23) and weeds out ones where title matched but content did not.
@@ -95,7 +95,7 @@ def _fetch_url_text(url, max_chars=6000):
     if not url or requests is None:
         return "", "no-requests-or-no-url"
     try:
-        r = requests.get(url, headers=_HEADERS, timeout=8)
+        r = requests.get(url, headers=_HEADERS, timeout=6)
         if r.status_code != 200:
             return "", f"http-{r.status_code}"
         txt = _extract_main_text(r.text)
@@ -171,7 +171,7 @@ def deep_filter(post, deep_text):
     # Show up to 3 found keywords in reason
     return True, f"deep confirms - found: {', '.join(found[:3])}"
 
-def run_deep_discovery(kept_posts, max_posts=23):
+def run_deep_discovery(kept_posts, max_posts=23, progress_cb=None):
     """Step 2: for each kept post, fetch body + filter. Returns (kept_after_deep, deep_stats)."""
     kept = kept_posts or []
     # Only deep-check first max_posts (they are already sorted social/question first)
@@ -181,8 +181,25 @@ def run_deep_discovery(kept_posts, max_posts=23):
     weeded = []
     checked = 0
     failed = 0
+    import time as _time2
+    _deep_start = _time2.time()
     for p in to_check:
+        # v4.9.2: total Deep budget 60s - if exceeded, keep remaining on title, do not hang user
+        if _time2.time() - _deep_start > 60:
+            for _rp in to_check[checked:]:
+                _rp["_deep_source"] = "skipped-budget"
+                _rp["_deep_status"] = "Deep budget 60s exceeded - kept on title"
+                _rp["_deep_reason"] = "kept - Deep budget exceeded"
+                _rp["_deep_len"] = 0
+                _rp["_deep_text"] = ""
+                kept_after.append(_rp)
+            break
         checked += 1
+        if progress_cb:
+            try:
+                progress_cb(checked, len(to_check))
+            except Exception:
+                pass
         try:
             deep_text, deep_source, deep_status = deep_fetch(p)
             keep, reason = deep_filter(p, deep_text)
