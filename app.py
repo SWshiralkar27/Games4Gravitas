@@ -1,5 +1,5 @@
 
-# app.py - v4.7.2 - Compact sidebar + copyable discovery error + Discovery diagnostic
+# app.py - v4.7.4 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -24,10 +24,11 @@ except Exception:
     def set_manual_used(m, n): return get_usage(m)
 
 try:
-    from gemini_client import GeminiClient, GeminiQuotaExceeded, GeminiInitError
+    from gemini_client import GeminiClient, GeminiQuotaExceeded, GeminiTransientError, GeminiInitError
 except Exception as e:
     GeminiClient = None
     class GeminiQuotaExceeded(Exception): pass
+    class GeminiTransientError(Exception): pass
     class GeminiInitError(Exception): pass
     _GEMINI_IMPORT_ERR = e
 else:
@@ -138,7 +139,7 @@ def _fb_run_discovery(seen_urls=None):
     stats = {"raw": len(all_posts), "invalid_skipped": 0, "seen_filtered": seen_filtered, "deduped": len(deduped), "social": 0, "web_pruned": max(0, len(deduped)-len(kept)), "kept_for_assessment": len(kept), "fallback": True, "per_source": per_source}
     return kept, stats
 
-# ================= SIDEBAR - COMPACT v4.7.2 =================
+# ================= SIDEBAR - COMPACT v4.7.4 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
 # 1. SEEN - TOP, always visible, compact
@@ -169,6 +170,14 @@ if not DISCOVERY_IS_NEW:
 # 3. QUOTA - summary line + details in expander (so sidebar stays short)
 u = get_usage(GEMINI_MODEL)
 st.sidebar.caption(f"Quota {u['label']}: {u['used']}/{u['limit']} used, {u['remaining']} left")
+# Reboot warning - local counter forgets on reboot, like seen_posts.txt
+try:
+    from quota import quota_reboot_warning
+    _rw = quota_reboot_warning(GEMINI_MODEL)
+    if _rw and u['used'] == 0:
+        st.sidebar.caption("Reboot? If you used Gemini today BEFORE this reboot, enter that number in AI Studio sync below.")
+except Exception:
+    pass
 st.sidebar.progress(min(1.0, u['used'] / u['limit']) if u['limit'] else 0)
 lvl = quota_level(GEMINI_MODEL, QUOTA_ASSESS_NEEDS)
 if lvl == "block":
@@ -279,6 +288,9 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
                     else: decision = "D_SKIP"
                     assessed.append({**p, "decision": decision, "promo": promo, "opp": opp, "theme": theme, "reason": str(d.get("reason","Gemini"))[:200]})
                     continue
+                except GeminiTransientError as te:
+                    st.warning(f"Gemini overloaded for this post only (503) - using heuristic for this post, continuing to next. {te}")
+                    # fall through to heuristic for this post only, do NOT set quota_hit
                 except GeminiQuotaExceeded as qe:
                     st.warning(f"{qe} Switching remaining posts to heuristic.")
                     quota_hit = True; st.session_state.quota_hit = True; gclient = None
@@ -371,4 +383,3 @@ with st.expander("Debug"):
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
-
