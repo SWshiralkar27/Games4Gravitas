@@ -1,5 +1,4 @@
-
-# app.py - v4.8 - Compact sidebar + copyable discovery error + Discovery diagnostic
+# app.py - v4.9 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -53,7 +52,7 @@ try:
     DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD")
     _has_norm = hasattr(_disc_mod, "_normalize_post")
     # Accept 4.4, 4.5, 4.6, 4.7 - all are good, do NOT call 4.5 OLD
-    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.8") or str(DISCOVERY_VERSION).startswith("4.")
+    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.9") or str(DISCOVERY_VERSION).startswith("4.")
     if not DISCOVERY_IS_NEW and str(DISCOVERY_VERSION) not in ("OLD",):
         # Version exists but not in list - still treat as OK if _normalize_post exists
         DISCOVERY_IS_NEW = _has_norm
@@ -149,7 +148,57 @@ def _fb_run_discovery(seen_urls=None):
     stats = {"raw": len(all_posts), "invalid_skipped": 0, "seen_filtered": seen_filtered, "deduped": len(deduped), "social": 0, "web_pruned": max(0, len(deduped)-len(kept)), "kept_for_assessment": len(kept), "fallback": True, "per_source": per_source}
     return kept, stats
 
-# ================= SIDEBAR - COMPACT v4.8 =================
+
+# --- Grounding (v4.9) - loads from grounding/ folder in same repo, fail-open ---
+def _load_grounding():
+    """Load grounding files from grounding/ folder next to app.py. Returns dict, empty if missing."""
+    try:
+        from pathlib import Path as _P
+        gdir = _P(__file__).parent / "grounding"
+        out = {}
+        for fname, key in [("00_book_core.txt","core"),("01_hybrid_intelligence.txt","cat1"),("02_passive_ld.txt","cat2"),("03_roi_architecture.txt","cat3"),("04_voice.txt","voice")]:
+            try:
+                p = gdir / fname
+                out[key] = p.read_text(encoding="utf-8")[:4000] if p.exists() else ""
+            except Exception:
+                out[key] = ""
+        return out
+    except Exception:
+        return {"core":"","cat1":"","cat2":"","cat3":"","voice":""}
+
+def _pick_grounding_category(post, grounding):
+    """Pick 1 category file based on post title+snippet+deep text. Returns (key, label, text)."""
+    try:
+        hay = ((post.get("title") or "") + " " + (post.get("snippet") or "") + " " + (post.get("_deep_text") or "")).lower()
+        # Category 2 signals: passive / lecture / slide / webinar / e-learning
+        c2 = sum(1 for k in ["passive", "lecture", "slide", "webinar", "e-learning", "elearning", "training module", "course"] if k in hay)
+        # Category 3 signals: ROI / budget / executive / transformation / adoption / debrief / facilitat
+        c3 = sum(1 for k in ["roi", "budget", "executive", "transformation", "change management", "adoption", "debrief", "facilitat", "6 pillar"] if k in hay)
+        # Category 1 signals: automation / ai tool / reskill / upskill / hybrid / human edge
+        c1 = sum(1 for k in ["automation", "automate", "ai tool", "reskill", "upskill", "hybrid", "human edge", "workforce"] if k in hay)
+        if c2 > c1 and c2 >= c3:
+            return ("cat2", "Category 2 - Passive L&D", grounding.get("cat2",""))
+        if c3 > c1 and c3 >= c2:
+            return ("cat3", "Category 3 - ROI & Architecture", grounding.get("cat3",""))
+        return ("cat1", "Category 1 - Hybrid Intelligence Era", grounding.get("cat1",""))
+    except Exception:
+        return ("cat1", "Category 1 - Hybrid Intelligence Era", grounding.get("cat1",""))
+
+def _build_grounding_prompt(post, grounding):
+    """Build grounding text for draft prompt: core + 1 category + voice. Returns (grounding_text, label)."""
+    try:
+        core = grounding.get("core","")
+        voice = grounding.get("voice","")
+        key, label, cat_text = _pick_grounding_category(post, grounding)
+        parts = []
+        if core: parts.append(core.strip())
+        if cat_text: parts.append(cat_text.strip())
+        if voice: parts.append(voice.strip())
+        return ("\n\n".join(parts)[:3500], label)
+    except Exception:
+        return ("", "Category 1 - Hybrid Intelligence Era")
+
+# ================= SIDEBAR - COMPACT v4.9 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
 # 1. SEEN - TOP, always visible, compact
@@ -321,7 +370,7 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
                     quota_hit = True; st.session_state.quota_hit = True; gclient = None
                 except Exception as e:
                     st.warning(f"Gemini analyse failed for {str(p.get('title',''))[:60]}: {e}")
-            # --- GROK FALLBACK FOR ASSESS (v4.8) ---
+            # --- GROK FALLBACK FOR ASSESS (v4.9) ---
             # If Gemini did not assess this post (quota out / 503 / no budget), try Grok before heuristic.
             # Grok has its own quota, so it works when Gemini is out.
             _grok_done = False
@@ -401,13 +450,13 @@ else:
                     usage2 = get_usage(GEMINI_MODEL)
                     if usage2["remaining"] <= 0:
                         st.warning(f"Gemini quota out ({usage2['used']}/{usage2['limit']} used). Trying Grok directly as fallback generator (separate quota).")
-                        # --- GROK FALLBACK FOR DRAFT (v4.8) ---
+                        # --- GROK FALLBACK FOR DRAFT (v4.9) ---
                         draft_a = None
                         try:
                             if GrokClient is not None:
                                 _gdk = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
                                 if _gdk.is_ready():
-                                    _gd = _gdk.generate(f"Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]}")
+                                    _gd = _gdk.generate(f"You are drafting a comment grounded ONLY in this book grounding - do not invent new data, paraphrase, do not copy verbatim. Grounding: {_build_grounding_prompt(post, _load_grounding())[0]} | Grounding category used: {_build_grounding_prompt(post, _load_grounding())[1]}. Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences, use ONE data point from grounding if it fits) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]} Deep body: {post.get('_deep_text','')[:800]}")
                                     if _gd:
                                         draft_a = format_draft(_gd)
                                         st.info("Option A - Grok fallback (Gemini quota out, single-engine - no dual review)")
@@ -427,17 +476,17 @@ else:
                             if GeminiClient is not None:
                                 g = GeminiClient(api_key=os.getenv("GEMINI_API_KEY",""), model=GEMINI_MODEL)
                                 if g.is_ready():
-                                    draft_a = g.generate(f"Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]}")
+                                    draft_a = g.generate(f"You are drafting a comment grounded ONLY in this book grounding - do not invent new data, paraphrase, do not copy verbatim. Grounding: {_build_grounding_prompt(post, _load_grounding())[0]} | Grounding category used: {_build_grounding_prompt(post, _load_grounding())[1]}. Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences, use ONE data point from grounding if it fits) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]} Deep body: {post.get('_deep_text','')[:800]}")
                                 else: raise GeminiInitError(g.init_error)
                             else: raise GeminiInitError("GeminiClient not available")
                         except GeminiQuotaExceeded as qe:
                             st.warning(f"{qe} Trying Grok fallback.")
-                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.8) ---
+                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.9) ---
                             try:
                                 if GrokClient is not None:
                                     _gdk2 = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
                                     if _gdk2.is_ready():
-                                        _gd2 = _gdk2.generate(f"Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]}")
+                                        _gd2 = _gdk2.generate(f"You are drafting a comment grounded ONLY in this book grounding - do not invent new data, paraphrase, do not copy verbatim. Grounding: {_build_grounding_prompt(post, _load_grounding())[0]} | Grounding category used: {_build_grounding_prompt(post, _load_grounding())[1]}. Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences, use ONE data point from grounding if it fits) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]} Deep body: {post.get('_deep_text','')[:800]}")
                                         draft_a = _gd2 if _gd2 else template_draft(post)
                                         st.info("Option A - Grok fallback (Gemini quota out)")
                                     else:
@@ -450,7 +499,8 @@ else:
                             st.warning(f"Gemini failed ({e}) - using template draft."); draft_a = template_draft(post)
                         if not draft_a: draft_a = template_draft(post)
                         draft_a = format_draft(draft_a)
-                    st.subheader("Option A - Gemini / Template (formatted)")
+                    st.caption(f"Grounding used: {_build_grounding_prompt(post, _load_grounding())[1]} | Files: grounding/00_book_core.txt + selected category + 04_voice.txt")
+                    st.subheader("Option A - Grounded draft (Gemini / Grok / Template)")
                     st.markdown(draft_a); st.code(draft_a, language="markdown")
                     st.text_area("Copy Option A", value=draft_a, key=f"copy_a_{idx}_v472", height=150)
 
@@ -473,4 +523,3 @@ with st.expander("Debug"):
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
-
