@@ -389,7 +389,10 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
                         st.write(f"- {w.get('title','')} | {w.get('reason','')}")
                         st.caption(w.get('link',''))
         except Exception as e:
-            st.warning(f"Real discovery failed ({e}) - using fallback discovery.")
+        st.warning(f"Real discovery failed ({e}) - using fallback discovery.")
+        import traceback as _tb
+        with st.expander("Show discovery error (copy this)"):
+            st.code(_tb.format_exc()[:3000])
             pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
             st.session_state.discovered = pruned or []
             st.session_state.assessed = []
