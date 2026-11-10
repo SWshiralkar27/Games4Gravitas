@@ -8,6 +8,9 @@ import os as _os
 SERPER_API_KEY = _os.getenv("SERPER_API_KEY", "")
 SEARCH_PROVIDER = "serper" if SERPER_API_KEY else "duckduckgo"
 YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
+# Missing imports that web_search.py / youtube.py need - empty is fine if you use Serper, just needs to exist
+BRAVE_API_KEY = _os.getenv("BRAVE_API_KEY", "")
+DAYS_BACK = 7
 # Search terms - same as v4.6, do not use parenthesised OR / Serper queries
 SEARCH_TERMS = [
     "corporate upskilling AI",
