@@ -1,145 +1,126 @@
+"""config.py — Leadership AI Digest v4.2
+FIXES in this version:
+- GEMINI_MODEL forced to gemini-3.8-flash. Any 2.0-flash / 1.5 value from
+  Secrets or env is auto-upgraded. Never 2.0-flash.
+- Quota + pruning constants added (were missing, caused silent failures).
+- No secrets in code. All keys from env / Streamlit Secrets only.
+"""
 import os
-from pathlib import Path
 
-# --- API Keys: read from Streamlit Secrets / env vars. Never hard-code keys here ---
+# --- API keys (from env / Streamlit Secrets only) ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_DELAY_SECONDS = float(os.getenv("GEMINI_DELAY_SECONDS", "3"))
-
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
-GROK_MODEL = os.getenv("GROK_MODEL", "grok-4")
-GROK_BASE_URL = os.getenv("GROK_BASE_URL", "https://api.x.ai/v1")
-GROK_ENABLED = os.getenv("GROK_ENABLED", "true").lower() == "true"
-GROK_REVIEW_COUNT = int(os.getenv("GROK_REVIEW_COUNT", "1"))
-
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "")
-SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "serper").lower()
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
-# Google CSE (optional, if you use it)
-GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY", "")
-GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID", "")
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "serper").lower()  # serper | brave
 
-# --- Search terms: your current list, comma-separated in one string ---
-_DEFAULT_SEARCH = (
-    "Leadership AI, Human-centered AI, hybrid intelligence, "
-    "AI decision making, team judgment under pressure, AI and critical thinking, leaders struggling with AI, "
-    "corporate upskilling AI, AI upskilling program organization, L&D AI training, future of work AI skills, "
-    "AI transformation leadership, reskilling workforce AI, AI literacy for leaders, "
-    "AI transformation upskilling program, HR leaders AI training, learning and development AI era"
-)
-SEARCH_TERMS = [t.strip() for t in os.getenv("SEARCH_TERMS", _DEFAULT_SEARCH).split(",") if t.strip()]
+# --- Models: 2.0-flash is retired (404). Force 3.8-flash. ---
+_raw_gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+if "2.0-flash" in _raw_gemini_model or "1.5" in _raw_gemini_model or "gemini-pro" in _raw_gemini_model:
+    GEMINI_MODEL = "gemini-3.8-flash"
+else:
+    GEMINI_MODEL = _raw_gemini_model
 
-# --- Book themes: defined here so app.py never crashes on missing BOOK_THEMES ---
-BOOK_THEMES = [
-    "Human Judgment",
-    "Purposeful Rehearsal",
-    "Centaur Leadership",
-    "Rehearse Before You Decide",
-    "Human Advantage",
+GROK_MODEL = os.getenv("GROK_MODEL", "grok-4").strip() or "grok-4"
+GROK_BASE_URL = os.getenv("GROK_BASE_URL", "https://api.x.ai/v1").strip()
+
+# --- Book ---
+BOOK_TITLE = "Games for Gravitas"
+BOOK_FULL_TITLE = "Games for Gravitas: A Playbook to Build Human Advantage in the Hybrid Intelligence Era"
+BOOK_LINK = os.getenv("BOOK_LINK", "")  # set in Secrets if you want it; never hard-code here
+BOOK_AMAZON_LINK = BOOK_LINK
+
+# Aliases used by older code — keep both so imports never break
+BOOK_NAME = BOOK_TITLE
+PROMOTION_THRESHOLD = 80
+
+# --- Search / themes (editable in Step 1 for that run only) ---
+SEARCH_TERMS = [
+    "corporate upskilling AI",
+    "AI upskilling program",
+    "L&D AI training",
+    "reskilling workforce AI",
+    "AI transformation leadership",
+    "HR leaders AI training",
+    "AI leadership skills",
+    "leading teams with AI",
+    "AI adoption manager",
+    "human advantage AI",
 ]
-# Alias for any code that uses THEMES
-THEMES = BOOK_THEMES
 
-# --- Platform order and files ---
-PLATFORM_ORDER = ["LinkedIn", "X", "Threads", "Facebook", "Instagram", "Medium", "YouTube"]
-PLATFORM_LABEL = {
-    "LinkedIn": "LinkedIn",
-    "X": "X",
-    "Threads": "Threads",
-    "Facebook": "Facebook",
-    "Instagram": "Instagram",
-    "Medium": "Medium",
-    "YouTube": "YouTube",
-}
+# Keep as plain strings. Older code expected tuples and crashed.
+# BOOK_THEMES_DETAILED is the tuple form for any code that needs it.
+BOOK_THEMES = [
+    "purposeful rehearsal",
+    "rehearse before you decide",
+    "centaur leadership",
+    "human advantage",
+    "hybrid intelligence",
+    "gravitas",
+    "play at work",
+    "leadership under AI pressure",
+]
+BOOK_THEMES_DETAILED = [(t, t) for t in BOOK_THEMES]
 
-HISTORY_FILE = Path("seen_posts.txt")
-HISTORY_DAYS = 90
-EFFECTIVENESS_FILE = Path("effectiveness.txt")
-
-# --- Thresholds (kept from v4) ---
-PROMOTE_THRESHOLD = 80
-ENGAGE_THRESHOLD = 60
-DYNAMIC_PROMOTE_THRESHOLD = 75
-SATURATION_HIGH = 80
-RECENCY_BOOST_HOURS = 4
-MAX_PROMOTE_PER_THEME = 2
+# --- Thresholds / scoring ---
+A_PROMOTE = 80
+B_ENGAGE = 60
+DYNAMIC_THRESHOLD = 75  # open question + low comments -> promote at 75
+SATURATION_COMMENTS = 80  # >80 comments: downgrade Promote -> Engage
+MAX_CONTEXT_CHARS = 4000
+THEME_CAP_PROMOTE = 2  # max 2 Promote per theme
 MIN_THEMES_PER_RUN = 3
 
-# --- Limits and chars: required by models.py and other modules ---
-MAX_CONTEXT_CHARS = int(__import__("os").getenv("MAX_CONTEXT_CHARS", "6000"))
-MAX_SNIPPET_CHARS = int(__import__("os").getenv("MAX_SNIPPET_CHARS", "2000"))
-MAX_TITLE_CHARS = int(__import__("os").getenv("MAX_TITLE_CHARS", "300"))
-MAX_COMMENT_CHARS = int(__import__("os").getenv("MAX_COMMENT_CHARS", "800"))
-MAX_DRAFT_CHARS = int(__import__("os").getenv("MAX_DRAFT_CHARS", "800"))
-MIN_SNIPPET_CHARS = int(__import__("os").getenv("MIN_SNIPPET_CHARS", "50"))
-MAX_POSTS_PER_RUN = int(__import__("os").getenv("MAX_POSTS_PER_RUN", "30"))
-DISCOVERY_LIMIT = int(__import__("os").getenv("DISCOVERY_LIMIT", "30"))
-MAX_CANDIDATES = int(__import__("os").getenv("MAX_CANDIDATES", "30"))
+# Promotion Score weights: Book 25% + Context 30% + Engagement 25% + Audience 10% + Naturalness 10%
+PROMO_WEIGHTS = {"book": 0.25, "context": 0.30, "engagement": 0.25, "audience": 0.10, "naturalness": 0.10}
+# Opportunity Score weights: relevance 40% + conversation 35% + recency 25%
+OPP_WEIGHTS = {"relevance": 0.40, "conversation": 0.35, "recency": 0.25}
 
-# Aliases that older code sometimes uses
-MAX_CONTENT_CHARS = MAX_CONTEXT_CHARS
-MAX_TEXT_CHARS = MAX_CONTEXT_CHARS
-CONTEXT_CHAR_LIMIT = MAX_CONTEXT_CHARS
+# --- Discovery constants (these were missing -> ImportError -> Discovery 0) ---
+MAX_RESULTS_PER_SOURCE = 5
+MEDIUM_TAGS = "leadership,artificial-intelligence,ai,future-of-work,leadership-development"
+DAYS_BACK = 30
+MAX_DISCOVERY_RAW = 85
 
-# --- Scoring / guardrail constants that other modules may import ---
-CEA_MAX_WORDS = int(__import__("os").getenv("CEA_MAX_WORDS", "120"))
-COMMENT_MAX_WORDS = int(__import__("os").getenv("COMMENT_MAX_WORDS", "120"))
-HOOK_MIN_WORDS = int(__import__("os").getenv("HOOK_MIN_WORDS", "3"))
+# --- NEW v4.2: pruning + quota ---
+# Only this many posts ever go to Gemini. Rest use heuristic (0 API calls).
+MAX_POSTS_TO_ASSESS = 30
+MAX_GEMINI_CALLS_PER_RUN = 12
+GEMINI_DELAY_SECONDS = 3.0
+GROK_DELAY_SECONDS = 2.0
 
-# --- Book info: required by gemini_client.py ---
-BOOK_FULL_TITLE = "Games for Gravitas: A Playbook to Build Human Advantage in the Hybrid Intelligence Era"
-BOOK_TITLE = "Games for Gravitas"
-BOOK_SHORT_TITLE = "Games for Gravitas"
-BOOK_AUTHOR = "Shreekant Shiralkar"
-BOOK_LINK = "https://www.amazon.com/dp/B0DUMMY"
-BOOK_URL = BOOK_LINK
+# Pruning: web articles are NOT threads. If we have real social posts, drop web.
+MAX_WEB_ARTICLES_IF_SOCIAL_EXISTS = 0
+MAX_WEB_ARTICLES_IF_SOME_SOCIAL = 5
+MAX_WEB_ARTICLES_IF_ONLY_WEB = 15
+MIN_SOCIAL_TO_DROP_WEB = 8
 
-# --- Scoring weights: required by gemini_client.py ---
-# v4 re-weighting: Book 25%, Context 30%, Engagement 25%, Audience 10%, Naturalness 10% = 1.0
-SCORE_WEIGHTS = {
-    "book_alignment": 0.25,
-    "contextual_relevance": 0.30,
-    "engagement": 0.25,
-    "audience_alignment": 0.10,
-    "promotion_naturalness": 0.10,
-}
-# Aliases that other scoring code might use
-PROMOTION_WEIGHTS = SCORE_WEIGHTS
-WEIGHTS = SCORE_WEIGHTS
+# Platforms that count as real threads (can reply / join conversation)
+SOCIAL_PLATFORMS = {"LinkedIn", "X", "Threads", "Facebook", "Instagram"}
+WEB_PLATFORMS = {"Medium", "YouTube"}
 
-# --- Context minimums ---
-MIN_CONTEXT_CHARS = int(__import__("os").getenv("MIN_CONTEXT_CHARS", "100"))
-MIN_SNIPPET_CHARS = int(__import__("os").getenv("MIN_SNIPPET_CHARS", "50"))
+# --- Draft formatting (v4.2) ---
+# Bold: book title only. Italics: these phrases (longest first at runtime).
+ITALIC_KEYWORDS = [
+    "rehearse before you decide",
+    "purposeful rehearsal",
+    "centaur leadership",
+    "human advantage",
+    "hybrid intelligence",
+    "leadership under AI pressure",
+    "gravitas",
+    "rehearsal",
+    "rehearse",
+    "play",
+]
 
-# --- Grok delays / timeouts: required by grok_client.py ---
-GROK_DELAY_SECONDS = float(__import__("os").getenv("GROK_DELAY_SECONDS", "2"))
-GROK_TIMEOUT_SECONDS = float(__import__("os").getenv("GROK_TIMEOUT_SECONDS", "30"))
-GEMINI_TIMEOUT_SECONDS = float(__import__("os").getenv("GEMINI_TIMEOUT_SECONDS", "30"))
-MAX_RETRIES = int(__import__("os").getenv("MAX_RETRIES", "3"))
+SENSITIVE_KEYWORDS = [
+    "war", "genocide", "terrorist", "terrorism", "sexual assault", "rape",
+    "suicide", "self-harm", "election fraud", "assassination",
+]
+BREAKING_KEYWORDS = ["breaking", "just announced", "just in", "developing story"]
 
-# --- Guardrails aliases: guardrails.py uses different names for the same thresholds ---
-# Original names in config.py: PROMOTE_THRESHOLD=80, ENGAGE_THRESHOLD=60, DYNAMIC_PROMOTE_THRESHOLD=75, SATURATION_HIGH=80
-# guardrails.py expects: PROMOTION_THRESHOLD, PROMOTION_THRESHOLD_OPEN, ENGAGEMENT_THRESHOLD, MAX_COMMENT_COUNT_SATURATION
-PROMOTION_THRESHOLD = PROMOTE_THRESHOLD
-PROMOTION_THRESHOLD_OPEN = DYNAMIC_PROMOTE_THRESHOLD
-ENGAGEMENT_THRESHOLD = ENGAGE_THRESHOLD
-ENGAGE_THRESHOLD_OPEN = DYNAMIC_PROMOTE_THRESHOLD
-MAX_COMMENT_COUNT_SATURATION = SATURATION_HIGH
-SATURATION_THRESHOLD = SATURATION_HIGH
-MAX_COMMENTS_SATURATION = SATURATION_HIGH
-COMMENT_COUNT_SATURATION = SATURATION_HIGH
-SATURATION_LIMIT = SATURATION_HIGH
-
-# Other guardrails / scoring names that may be imported next
-SENSITIVE_THRESHOLD = 0.7
-CONFIDENCE_THRESHOLD = 0.5
-MIN_OPPORTUNITY_SCORE = 0
-MAX_THEME_COUNT = 5
-
-
-# --- Discovery constants: REQUIRED by discovery/* - missing these caused ImportError -> run_discovery always returned [] ---
-MAX_RESULTS_PER_SOURCE = int(os.getenv("MAX_RESULTS_PER_SOURCE", "5"))
-MEDIUM_TAGS = [t.strip() for t in os.getenv("MEDIUM_TAGS", "leadership,artificial-intelligence,ai,future-of-work,leadership-development").split(",") if t.strip()]
-DAYS_BACK = int(os.getenv("DAYS_BACK", "30"))
+# Abbreviations protected when breaking after "."
+ABBREVIATIONS = ["Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Sr.", "Jr.", "vs.", "e.g.", "i.e.", "U.S.", "U.K."]
