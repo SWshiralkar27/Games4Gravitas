@@ -66,8 +66,6 @@ class GeminiClient:
                 f"Use template / heuristic drafts, or switch GEMINI_MODEL to gemini-3.1-flash-lite (500/day)."
             )
         wait_for_rpm_slot(self.model, max_wait=10)
-        try:
-            # v4.9.2: 30s timeout - never hang 15 mins. If Gemini stalls, treat as transient, fall back.
             _ex = ThreadPoolExecutor(max_workers=1)
             try:
                 _fut = _ex.submit(self._client.models.generate_content, model=self.model, contents=prompt)
@@ -75,6 +73,8 @@ class GeminiClient:
             except _FutTimeout:
                 _ex.shutdown(wait=False, cancel_futures=True)
                 raise GeminiTransientError("Gemini timed out after 30s (server stalled). Treated as 503 - will use heuristic / Grok for this post.")
+            finally:
+                _ex.shutdown(wait=False, cancel_futures=True)
             finally:
                 _ex.shutdown(wait=False, cancel_futures=True)
             record_call(self.model, 1)
