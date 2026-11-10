@@ -260,6 +260,7 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
     kept, stats = prune_discovery(all_posts, seen_urls=seen_urls)
     stats["per_source"] = per_source
     stats["raw"] = len(all_posts)
+    stats["raw_links"] = [p.get("link", "") for p in all_posts if p.get("link")]
     # --- STEP 2 DEEP DISCOVERY (v4.8) ---
     # Only for kept candidates (max ~23), 0 Gemini calls. Weeds out title-matches where body does not fit.
     try:
