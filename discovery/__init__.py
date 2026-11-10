@@ -1,5 +1,5 @@
-"""discovery/__init__.py — v4.5
-__VERSION__ = "4.5" — if you do NOT see this line on GitHub, you are still on the OLD file.
+"""discovery/__init__.py — v4.6
+__VERSION__ = "4.6" — if you do NOT see this line on GitHub, you are still on the OLD file.
 FIXES for 2026-11-10 Run crash:
   AttributeError at prune_discovery line 68:
     url = (p.get("link") or "").strip()...
@@ -19,7 +19,7 @@ before pruning, with stats seen_filtered.
 """
 import re
 
-__VERSION__ = "4.5"
+__VERSION__ = "4.6"
 
 from config import (
     MAX_POSTS_TO_ASSESS,
@@ -276,6 +276,38 @@ def _as_list(v):
     return [v]
 
 
+
+def _resolve_maybe_async(value):
+    """If value is a coroutine (async fetch_medium), run it to a real list. Else return as-is."""
+    import asyncio
+    import inspect
+    if not inspect.iscoroutine(value) and not inspect.isawaitable(value):
+        return value
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Streamlit already has a running loop - run coroutine in a fresh thread + loop
+            import concurrent.futures
+            def _run():
+                return asyncio.run(value)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                return ex.submit(_run).result(timeout=30)
+        else:
+            return loop.run_until_complete(value)
+    except RuntimeError:
+        return asyncio.run(value)
+    except Exception:
+        return []
+
+def _call_maybe_async(func, *args, **kwargs):
+    """Call func that may be sync or async, return resolved value (never a coroutine)."""
+    import inspect
+    try:
+        result = func(*args, **kwargs)
+    except TypeError:
+        raise
+    return _resolve_maybe_async(result)
+
 def run_discovery_with_stats(search_terms=None, book_themes=None, seen_urls=None, seen_links=None, **kwargs):
     terms = search_terms or kwargs.get("terms") or kwargs.get("search") or []
     # Accept both names for seen
@@ -286,7 +318,7 @@ def run_discovery_with_stats(search_terms=None, book_themes=None, seen_urls=None
     per_source = {}
     try:
         from discovery.web_search import search_web
-        web_posts, web_counts = search_web(terms)
+        web_posts, web_counts = _resolve_maybe_async(search_web(terms))
         web_posts = _as_list(web_posts)
         all_posts.extend(web_posts)
         per_source["web_search"] = len(web_posts)
@@ -299,13 +331,13 @@ def run_discovery_with_stats(search_terms=None, book_themes=None, seen_urls=None
         # new medium.py accepts fetch_medium(). Try no-arg first, then None,
         # then session kwarg, so either version works.
         try:
-            m_raw = fetch_medium()
+            m_raw = _call_maybe_async(fetch_medium)
         except TypeError as te:
             if "session" in str(te) or "positional argument" in str(te) or "missing" in str(te):
                 try:
-                    m_raw = fetch_medium(None)
+                    m_raw = _call_maybe_async(fetch_medium, None)
                 except TypeError:
-                    m_raw = fetch_medium(session=None)
+                    m_raw = _call_maybe_async(fetch_medium, session=None)
             else:
                 raise
         m = _as_list(m_raw)
@@ -315,7 +347,7 @@ def run_discovery_with_stats(search_terms=None, book_themes=None, seen_urls=None
         per_source["medium_error"] = str(e)
     try:
         from discovery.youtube import fetch_youtube
-        y = _as_list(fetch_youtube(terms))
+        y = _as_list(_resolve_maybe_async(fetch_youtube(terms)))
         all_posts.extend(y)
         per_source["youtube"] = len(y)
     except Exception as e:
