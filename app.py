@@ -1,4 +1,5 @@
-# app.py - v4.9.3.1 - Compact sidebar + copyable discovery error + Discovery diagnostic
+
+# app.py - v4.9.3.3 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -10,7 +11,7 @@ import os, json, re
 
 import streamlit as st
 
-from config import GEMINI_MODEL, MODEL_QUOTAS, QUOTA_ASSESS_NEEDS, QUOTA_DRAFT_NEEDS, QUOTA_TEST_NEEDS, QUOTA_FALLBACK_MODEL, SEARCH_TERMS
+from config import GEMINI_MODEL, MODEL_QUOTAS, QUOTA_ASSESS_NEEDS, QUOTA_DRAFT_NEEDS, QUOTA_TEST_NEEDS, QUOTA_FALLBACK_MODEL, SEARCH_TERMS, SEARCH_PROVIDER, SERPER_API_KEY
 
 # --- Quota ---
 try:
@@ -51,7 +52,7 @@ try:
     import discovery as _disc_mod
     DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD")
     _has_norm = hasattr(_disc_mod, "_normalize_post")
-    # v4.9.3.1 FIX: any 4.x with _normalize_post is NEW. Old check used a hardcoded tuple and operator precedence made it fragile.
+    # v4.9.3.3 FIX: any 4.x with _normalize_post is NEW. Old check used a hardcoded tuple and operator precedence made it fragile.
     # OLD is now ONLY when import failed (VERSION = "OLD - import failed") or no _normalize_post and no 4.x version.
     DISCOVERY_IS_NEW = bool(_has_norm and str(DISCOVERY_VERSION).strip().startswith("4."))
     if not DISCOVERY_IS_NEW and str(DISCOVERY_VERSION) not in ("OLD",):
@@ -151,7 +152,7 @@ def _fb_run_discovery(seen_urls=None, search_terms=None):
     return kept, stats
 
 
-# --- Grounding (v4.9.3.1) - loads from grounding/ folder in same repo, fail-open ---
+# --- Grounding (v4.9.3.3) - loads from grounding/ folder in same repo, fail-open ---
 def _load_grounding():
     """Load grounding files from grounding/ folder next to app.py. Returns dict, empty if missing."""
     try:
@@ -200,7 +201,7 @@ def _build_grounding_prompt(post, grounding):
     except Exception:
         return ("", "Category 1 - Hybrid Intelligence Era")
 
-# ================= SIDEBAR - COMPACT v4.9.3.1 =================
+# ================= SIDEBAR - COMPACT v4.9.3.3 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
 # 1. SEEN - TOP, always visible, compact
@@ -218,6 +219,8 @@ else:
 
 # 2. KEYS + DISCOVERY - one line each
 st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Grok: {'OK' if os.getenv('GROK_API_KEY') else 'MISSING'} | Model: {GEMINI_MODEL}")
+# v4.9.3.3: show Serper status so you can see it is being used
+st.sidebar.caption(f"Search: {SEARCH_PROVIDER} | Serper key: {'OK' if SERPER_API_KEY else 'not set - using DuckDuckGo'}")
 st.sidebar.caption(f"Discovery: {DISCOVERY_VERSION}")
 if not DISCOVERY_IS_NEW:
     if _DISCOVERY_ERR:
@@ -271,7 +274,7 @@ with st.sidebar.expander("Effectiveness (optional)"):
             st.sidebar.error(f"Error: {e}")
 
 # ================= MAIN =================
-# --- Top bar (v4.9.3.1) - title left, Kill button right ---
+# --- Top bar (v4.9.3.3) - title left, Kill button right ---
 if "kill_requested" not in st.session_state:
     st.session_state.kill_requested = False
 if "current_task" not in st.session_state:
@@ -297,7 +300,7 @@ def _clear_kill(task_name):
     st.session_state.kill_requested = False
     st.session_state.current_task = task_name
 st.write("Step 1: Run Discovery (0 Gemini calls) -> Assess (max 12 Gemini calls, rest heuristic) -> Step 2: Review drafts.")
-# --- Step-wise UI (v4.9.3.1) - only current step is expanded ---
+# --- Step-wise UI (v4.9.3.3) - only current step is expanded ---
 _has_discovered = bool(st.session_state.get("discovered"))
 _has_assessed = bool(st.session_state.get("assessed"))
 if _has_discovered and _has_assessed:
@@ -307,7 +310,7 @@ elif _has_discovered:
 else:
     _current_step = "discovery"
 st.caption(f"Current step: {_current_step.upper()} | Discovery → Assess → Draft. Previous steps are collapsed below.")
-_show_discovery = False  # FIX v4.9.3.1: ensure defined
+_show_discovery = False  # FIX v4.9.3.3: ensure defined
 if _current_step != "discovery":
     with st.expander(f"Step 1 - Discovery (done - {len(st.session_state.get('discovered',[]))} posts) - tap to re-run"):
         st.caption("Re-running Discovery replaces the current list. Your search terms are below.")
@@ -318,7 +321,8 @@ else:
 # Discovery body is shown when _show_discovery is True (always True for now, but Assess/Draft are gated below)
 if _show_discovery:
     st.subheader("Step 1 - Discovery")
-# --- Search terms editor (v4.9.3.1) - edit before Discovery, no config.py edit needed ---
+    st.caption(f"Search provider: {SEARCH_PROVIDER} - Serper key: {'OK' if SERPER_API_KEY else 'not set'} | 0 Gemini calls for Discovery")
+# --- Search terms editor (v4.9.3.3) - edit before Discovery, no config.py edit needed ---
 st.subheader("Search terms - edit before Discovery")
 st.caption("One term per line. Discovery searches each term. Edit / add / delete here for this run. To make it permanent, also update SEARCH_TERMS in config.py on GitHub.")
 try:
@@ -380,11 +384,22 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
         st.session_state.assessed = []
         st.success(f"[SAFE FALLBACK USED] Discovery returned {stats.get('raw','?')} raw / pruned to {len(pruned)}. Seen filtered: {stats.get('seen_filtered',0)}.")
 
+# v4.9.3.3 FIX: _has_discovered / _current_step were computed BEFORE Discovery ran, so on the run where Discovery succeeded
+# they were still False / "discovery" and Assess showed "Complete Step 1 first" even though Discovery just finished.
+# Recompute them here, after Discovery handler, before Assess gating.
+_has_discovered = bool(st.session_state.get("discovered"))
+_has_assessed = bool(st.session_state.get("assessed"))
+if _has_discovered and _has_assessed:
+    _current_step = "draft"
+elif _has_discovered:
+    _current_step = "assess"
+else:
+    _current_step = "discovery"
 if st.session_state.discovered:
     st.write(f"Discovered: {len(st.session_state.discovered)} ready for Assess. Discovery uses 0 Gemini calls.")
 
-# --- Assess gated (v4.9.3.1 FIX) - _show_assess must be defined in ALL branches ---
-_show_assess = False  # FIX v4.9.3.1: was undefined when on Step 1 with no Discovery yet -> NameError line 395
+# --- Assess gated (v4.9.3.3 FIX) - _show_assess must be defined in ALL branches ---
+_show_assess = False  # FIX v4.9.3.3: was undefined when on Step 1 with no Discovery yet -> NameError line 395
 if _current_step == "discovery" and not _has_discovered:
     st.info("Step 2 - Assess: Complete Step 1 Discovery first. Assess is hidden until Discovery is done.")
     _show_assess = False
@@ -440,7 +455,7 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
             except Exception:
                 grok_client_for_assess = None
         for p in posts:
-            # v4.9.3.1: Kill check + progress - checked between posts
+            # v4.9.3.3: Kill check + progress - checked between posts
             try:
                 _check_kill()
             except InterruptedError:
@@ -478,7 +493,7 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                     quota_hit = True; st.session_state.quota_hit = True; gclient = None
                 except Exception as e:
                     st.warning(f"Gemini analyse failed for {str(p.get('title',''))[:60]}: {e}")
-            # --- GROK FALLBACK FOR ASSESS (v4.9.3.1) ---
+            # --- GROK FALLBACK FOR ASSESS (v4.9.3.3) ---
             # If Gemini did not assess this post (quota out / 503 / no budget), try Grok before heuristic.
             # Grok has its own quota, so it works when Gemini is out.
             _grok_done = False
@@ -529,7 +544,7 @@ if st.session_state.assessed:
     def _c(d): return sum(1 for x in a_list if x.get("decision")==d)
     st.subheader(f"{len(a_list)} assessed: {_c('A_PROMOTE')} promote - {_c('B_ENGAGE')} engage - {_c('D_SENSITIVE')} sensitive - {_c('C_WAIT')} wait - {_c('D_SKIP')} skip")
 
-# --- Draft gated (v4.9.3.1) - only main when Assess is done ---
+# --- Draft gated (v4.9.3.3) - only main when Assess is done ---
 if not _has_assessed:
     st.info("Step 3 - Review drafts: Complete Assess first. Drafts are hidden until Assess is done.")
 else:
@@ -558,7 +573,7 @@ else:
                 st.warning("Sensitive - drafting blocked.")
             else:
                 key = f"draft_{idx}_{str(post.get('link',''))[:30]}_v472"
-                # Template-only instant button (v4.9.3.1) - no AI call, never hangs
+                # Template-only instant button (v4.9.3.3) - no AI call, never hangs
                 if st.button("Generate template draft only (no AI, instant)", key=f"{key}_template"):
                     _tmpl = format_draft(template_draft(post))
                     st.subheader("Template draft (no AI)")
@@ -571,7 +586,7 @@ else:
                     usage2 = get_usage(GEMINI_MODEL)
                     if usage2["remaining"] <= 0:
                         st.warning(f"Gemini quota out ({usage2['used']}/{usage2['limit']} used). Trying Grok directly as fallback generator (separate quota).")
-                        # --- GROK FALLBACK FOR DRAFT (v4.9.3.1) ---
+                        # --- GROK FALLBACK FOR DRAFT (v4.9.3.3) ---
                         draft_a = None
                         try:
                             if GrokClient is not None:
@@ -602,7 +617,7 @@ else:
                             else: raise GeminiInitError("GeminiClient not available")
                         except GeminiQuotaExceeded as qe:
                             st.warning(f"{qe} Trying Grok fallback.")
-                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.9.3.1) ---
+                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.9.3.3) ---
                             try:
                                 if GrokClient is not None:
                                     _gdk2 = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
@@ -644,3 +659,4 @@ with st.expander("Debug"):
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
+
