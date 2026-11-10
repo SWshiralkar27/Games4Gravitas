@@ -1,5 +1,4 @@
-
-# config.py - v4.7.5 - Grok fallback
+# config.py - v4.9.3.3 - Grok fallback
 # Root: config.py
 
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -60,10 +59,20 @@ QUOTA_ASSESS_NEEDS = 12   # Assess: max 12 posts to Gemini, rest heuristic
 QUOTA_DRAFT_NEEDS = 1     # Generate draft: 1 call
 QUOTA_TEST_NEEDS = 1      # Test Gemini now: 1 call
 
+# --- Discovery providers (v4.9.3.3 FIX: Serper auto-detect) ---
+# discovery/web_search.py does `from config import SEARCH_PROVIDER` and discovery/youtube.py does `from config import YOUTUBE_API_KEY`.
+# If these names are missing, web_search and youtube error out and Discovery falls back to Medium only.
+# SERPER was very effective for you: if SERPER_API_KEY is in Secrets, use Serper; otherwise fall back to DuckDuckGo (free, no key).
+# Do NOT use parenthesised OR in Serper queries - web_search.py already sends plain queries.
+import os as _os
+SERPER_API_KEY = _os.getenv("SERPER_API_KEY", "")
+SEARCH_PROVIDER = "serper" if SERPER_API_KEY else "duckduckgo"
+# YOUTUBE_API_KEY: read from Streamlit Secrets / env. Empty = youtube.py uses RSS / no-key fallback, still returns results.
+YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
+
 # Grok fallback (separate quota from Gemini)
 GROK_MODEL = "grok-3-mini"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 
 # Fallback model suggestion when 3.8 Flash is out
 QUOTA_FALLBACK_MODEL = "gemini-3.1-flash-lite"
-
