@@ -1,3 +1,4 @@
+
 # discovery/__init__.py - v4.7.3 - Import-safe (no top-level config import)
 # Path: discovery/__init__.py - upload to discovery/ folder, NOT root
 # FIX v4.7.3: Previous versions did "from config import ..." at top level.
@@ -5,7 +6,7 @@
 # and app showed "OLD - import failed" even though filenames were correct.
 # This version defines __VERSION__ FIRST and imports config LAZILY inside functions with defaults,
 # so it can never fail to import. Each source (web/medium/youtube) is also lazy + try/except.
-__VERSION__ = "4.8"
+__VERSION__ = "4.9.1"
 
 import re
 import asyncio
@@ -156,18 +157,27 @@ def prune_discovery(all_posts, seen_urls=None):
     }
     return kept, stats
 
-def run_discovery_with_stats(seen_urls=None):
+def run_discovery_with_stats(seen_urls=None, search_terms=None):
     seen_urls = set(seen_urls or set())
-    search_terms = _get_config("SEARCH_TERMS", [
-        "corporate upskilling AI",
-        "AI upskilling program",
-        "L&D AI training",
-        "reskilling workforce AI",
-        "corporate upskilling AI site:linkedin.com",
-        "AI upskilling program site:x.com",
-        "L&D AI training site:threads.net",
-        "reskilling workforce AI site:linkedin.com",
-    ])
+    # v4.9.1: allow app UI to override search terms for this run. If None, use config.
+    if search_terms is None:
+        search_terms = _get_config("SEARCH_TERMS", [
+            "corporate upskilling AI",
+            "AI upskilling program",
+            "L&D AI training",
+            "reskilling workforce AI",
+            "corporate upskilling AI site:linkedin.com",
+            "AI upskilling program site:x.com",
+            "L&D AI training site:threads.net",
+            "reskilling workforce AI site:linkedin.com",
+        ])
+    # Clean: strip, drop empties, dedupe preserving order
+    _cleaned = []
+    for _q in (search_terms or []):
+        _q = str(_q).strip()
+        if _q and _q not in _cleaned:
+            _cleaned.append(_q)
+    search_terms = _cleaned if _cleaned else _get_config("SEARCH_TERMS", ["corporate upskilling AI"])
     max_per = _get_config("MAX_RESULTS_PER_SOURCE", 5)
     try:
         max_per = int(max_per)
@@ -269,3 +279,4 @@ def run_discovery_with_stats(seen_urls=None):
         stats["deep_weeded"] = 0
         stats["deep_error"] = str(e)[:200]
         return kept, stats
+
