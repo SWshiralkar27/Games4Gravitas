@@ -1,0 +1,8 @@
+Voice for drafts (from book templates)
+- Structure: CEA - Compliment (1 sentence) - Expand (1-2 sentences) - Ask (1 open question). Max 70 words. Plain text.
+- Start with a genuine compliment, e.g. 'Spot-on discussion!' - do not start with a lecture.
+- Refer to 'Games for Gravitas' naturally once, only if relevant. Do not sound salesy.
+- In Expand, use ONE data point from the selected grounding category if it fits. Do not stack three stats.
+- Paraphrase grounding, do not copy the template verbatim. Do not invent new numbers, studies, or claims not in grounding.
+- End with one open question that invites reply, not a yes/no question.
+- Tone: practitioner, not academic. Direct, warm, confident.
