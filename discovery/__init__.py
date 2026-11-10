@@ -46,12 +46,19 @@ def _normalize_post(p):
         link = _safe_str(p[1]) if len(p) > 1 else ""
         snippet = _safe_str(p[2]) if len(p) > 2 else title
         return {"title": title[:300], "link": link.strip(), "snippet": snippet[:800], "platform": "Web"}
-    if isinstance(p, dict):
+    if isinstance(p, dict) and hasattr(p, "get"):
         link_raw = p.get("link", "") or p.get("url", "") or p.get("href", "") or ""
         link = _safe_str(link_raw).strip()
         title = _safe_str(p.get("title", "")).strip()
         snippet = _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", "") or title)
         platform = _safe_str(p.get("platform", "") or p.get("source", "") or "Web")
+        if not title and not link and not snippet:
+            return None
+        return {"title": title[:300], "link": link, "snippet": snippet[:800], "platform": platform or "Web"}
+    # ContentItem / object without .get - fall through to getattr branch below
+    if isinstance(p, dict):
+        # dict-like but no .get (e.g. ContentItem) - treat as object
+        pass
         if not title and not link and not snippet:
             return None
         return {"title": title[:300], "link": link, "snippet": snippet[:800], "platform": platform or "Web"}
