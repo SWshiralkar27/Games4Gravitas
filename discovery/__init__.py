@@ -1,4 +1,3 @@
-
 # discovery/__init__.py - v4.7.3 - Import-safe (no top-level config import)
 # Path: discovery/__init__.py - upload to discovery/ folder, NOT root
 # FIX v4.7.3: Previous versions did "from config import ..." at top level.
@@ -6,7 +5,7 @@
 # and app showed "OLD - import failed" even though filenames were correct.
 # This version defines __VERSION__ FIRST and imports config LAZILY inside functions with defaults,
 # so it can never fail to import. Each source (web/medium/youtube) is also lazy + try/except.
-__VERSION__ = "4.7.3"
+__VERSION__ = "4.8"
 
 import re
 import asyncio
@@ -252,5 +251,21 @@ def run_discovery_with_stats(seen_urls=None):
     kept, stats = prune_discovery(all_posts, seen_urls=seen_urls)
     stats["per_source"] = per_source
     stats["raw"] = len(all_posts)
-    return kept, stats
-
+    # --- STEP 2 DEEP DISCOVERY (v4.8) ---
+    # Only for kept candidates (max ~23), 0 Gemini calls. Weeds out title-matches where body does not fit.
+    try:
+        from discovery.deep import run_deep_discovery
+        kept2, deep_stats, weeded = run_deep_discovery(kept, max_posts=23)
+        stats["deep_checked"] = deep_stats.get("deep_checked", 0)
+        stats["deep_kept"] = deep_stats.get("deep_kept", len(kept2))
+        stats["deep_weeded"] = deep_stats.get("deep_weeded", 0)
+        stats["deep_weeded_titles"] = deep_stats.get("deep_weeded_titles", [])
+        stats["kept_for_assessment"] = len(kept2)
+        # Keep weeded list in stats for app to show
+        stats["deep_weeded_posts"] = [{"title": w.get("title","")[:120], "link": w.get("link",""), "reason": w.get("_weed_reason","")} for w in weeded]
+        return kept2, stats
+    except Exception as e:
+        stats["deep_checked"] = 0
+        stats["deep_weeded"] = 0
+        stats["deep_error"] = str(e)[:200]
+        return kept, stats
