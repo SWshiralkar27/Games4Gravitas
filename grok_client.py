@@ -16,13 +16,13 @@ class GrokInitError(Exception):
     pass
 
 def _normalize_grok_model(m):
-    m = (m or "llama-3.3-70b-versatile").strip().lower()
-    if "llama" in m or "mixtral" in m or "gemma" in m:
+    m = (m or "openai/gpt-oss-20b").strip().lower()
+    if "gpt-oss" in m or "llama" in m or "gemma" in m:
         return m
-    return "llama-3.3-70b-versatile"
+    return "openai/gpt-oss-20b"
 
 class GrokClient:
-    def __init__(self, api_key=None, model="llama-3.3-70b-versatile", api_url="https://api.groq.com/openai/v1/chat/completions"):
+    def __init__(self, api_key=None, model="openai/gpt-oss-20b", api_url="https://api.groq.com/openai/v1/chat/completions"):
         # Check both GROQ_API_KEY and fallback to legacy GROK_API_KEY if needed
         import os
         self.api_key = (api_key or os.getenv("GROQ_API_KEY", "") or os.getenv("GROK_API_KEY", "")).strip()
