@@ -1,7 +1,11 @@
-streamlit
-aiohttp
-feedparser
-requests
-beautifulsoup4
-python-dotenv
-google-generativeai
+streamlit>=1.37.0
+google-genai>=1.0.0
+requests>=2.31.0
+feedparser>=6.0.11
+python-dateutil>=2.8.2
+# DO NOT add google-generativeai here.
+# google-generativeai creates a `google` namespace package that shadows
+# google-genai and breaks `from google import genai` with:
+#   cannot import name 'genai' from 'google' (unknown location)
+# Keep only google-genai above. If you previously had google-generativeai,
+# delete that line, commit, and reboot Streamlit Cloud.
