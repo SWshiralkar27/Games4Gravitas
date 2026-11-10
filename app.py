@@ -519,7 +519,7 @@ if st.session_state.assessed:
                 st.markdown(draft_a)
                 st.code(draft_a, language="markdown")
 
-# --- Dual-Engine Debug & Diagnostic Expander ---
+# --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
     col_g1, col_g2 = st.columns(2)
     with col_g1:
@@ -536,16 +536,16 @@ with st.expander("Dual-Engine Debug & Diagnostic"):
                     else: st.success(f"Gemini OK ({c.model}): {c.test()}")
                 except Exception as e: st.error(f"Gemini failed: {e}")
     with col_g2:
-        if st.button("Test Grok Now", key="test_grok_diag_v493"):
+        if st.button("Test Groq Now", key="test_groq_diag_v493"):
             if GrokClient is None:
-                st.error("GrokClient failed to import.")
+                st.error("GroqClient failed to import.")
             else:
                 try:
-                    gc = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
-                    if not gc.is_ready(): st.error("Grok init failed.")
-                    else: st.success(f"Grok OK: {gc.generate('Say Hi in 2 words.')}")
-                except Exception as ge: st.error(f"Grok failed: {ge}")
-    st.write(f"GEMINI_MODEL: {GEMINI_MODEL} | GROK_MODEL: {GROK_MODEL}")
+                    gc = GrokClient(api_key=os.getenv("GROQ_API_KEY", ""), model=GROK_MODEL)
+                    if not gc.is_ready(): st.error(f"Groq init failed: {gc.init_error}")
+                    else: st.success(f"Groq OK: {gc.generate('Say Hi in 2 words.')}")
+                except Exception as ge: st.error(f"Groq failed: {ge}")
+    st.write(f"GEMINI_MODEL: {GEMINI_MODEL} | GROQ_MODEL: {GROK_MODEL}")
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
