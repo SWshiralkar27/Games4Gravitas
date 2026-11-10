@@ -1,8 +1,9 @@
-# gemini_client.py - v4.7.4 - 503 vs 429 separated
+# gemini_client.py - v4.9.2 - 503 vs 429 separated
 # Root: gemini_client.py
 # FIX: 503 UNAVAILABLE (model overloaded) is NOT quota. Do NOT mark quota exhausted, do NOT abort whole Assess.
 # 429 RESOURCE_EXHAUSTED is quota. Mark exhausted, show reset time.
 import re, time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
 
 try:
     from quota import can_afford, record_call, mark_quota_exhausted, get_usage, wait_for_rpm_slot
@@ -66,7 +67,13 @@ class GeminiClient:
             )
         wait_for_rpm_slot(self.model, max_wait=10)
         try:
-            resp = self._client.models.generate_content(model=self.model, contents=prompt)
+            # v4.9.2: 30s timeout - never hang 15 mins. If Gemini stalls, treat as transient, fall back.
+            try:
+                with ThreadPoolExecutor(max_workers=1) as _ex:
+                    _fut = _ex.submit(self._client.models.generate_content, model=self.model, contents=prompt)
+                    resp = _fut.result(timeout=30)
+            except _FutTimeout:
+                raise GeminiTransientError("Gemini timed out after 30s (server stalled). Treated as 503 - will use heuristic / Grok for this post.")
             record_call(self.model, 1)
             text = ""
             try:
