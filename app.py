@@ -485,7 +485,7 @@ if st.session_state.assessed:
     if view == "Promote only":
         filtered = [x for x in filtered if x.get("decision") == "A_PROMOTE"]
     elif view == "Recommended only (Promote + Engage)":
-        filtered = [x for x in filtered if x.get("decision"] in ("A_PROMOTE","B_ENGAGE")]
+        filtered = [x for x in filtered if x.get("decision") in ("A_PROMOTE","B_ENGAGE")]
 
     for idx, post in enumerate(filtered):
         if not isinstance(post, dict): continue
