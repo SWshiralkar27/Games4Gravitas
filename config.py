@@ -80,7 +80,7 @@ SEARCH_PROVIDER = "serper" if SERPER_API_KEY else "duckduckgo"
 YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 
 # Grok fallback (separate quota from Gemini)
-GROK_MODEL = "llama-3.3-70b-versatile"
+GROK_MODEL = "openai/gpt-oss-20b"
 GROK_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Fallback model suggestion when 3.8 Flash is out
