@@ -1,25 +1,28 @@
-"""app.py — Leadership AI Digest v4.2 (UI only)
-FIXES in v4.2:
-1. Pruning: shows "Discovery X raw -> Y for assessment (Z web pruned)",
-   Step 2 defaults to Recommended only, Skip list collapsed.
-2. Quota: max 12 Gemini calls/run, rest heuristic (0 calls). On 429,
-   banner with retry time, stop hammering, template drafts still copyable.
-3. Gemini: never 2.0-flash, never old SDK (see gemini_client.py).
-4. Formatting: every draft via drafting.formatting.format_draft
-   (bold book, italics keywords, line break after every full stop).
-5. Widgets: never value= + key= together. Init session_state once.
+"""app.py — Leadership AI Digest v4.3 (UI only)
+FIXES in v4.3:
+- RESTORED: seen_posts.txt upload in left sidebar (dropped in v4.2 by mistake).
+  Sidebar shows uploader + count. Streamlit forgets uploads on reboot,
+  so re-upload after each reboot. Seen URLs/titles are filtered in discovery.
+- Crash fix: app passes seen_urls to run_discovery_with_stats. Discovery
+  now normalises every item, so a str/None/object from Medium/YouTube
+  cannot crash prune_discovery with AttributeError on p.get().
+
+Kept from v4.2:
+- Pruning banner, max 12 Gemini calls, heuristic fallback, Recommended-only default.
+- Formatting: bold book, italics keywords, line break after every full stop.
+- Gemini: never 2.0-flash, never old SDK. Widgets: never value= + key= together.
 """
 import os
+import re
 import time
 
 import streamlit as st
 
 from config import (
-    BOOK_THEMES, GEMINI_MODEL, GROK_MODEL, MAX_GEMINI_CALLS_PER_RUN,
-    SEARCH_PROVIDER, SEARCH_TERMS,
+    BOOK_THEMES, GEMINI_MODEL, GROK_MODEL,
+    MAX_GEMINI_CALLS_PER_RUN, SEARCH_PROVIDER, SEARCH_TERMS,
 )
 
-# --- Defensive imports: app must not crash if one helper is missing ---
 try:
     from discovery import run_discovery_with_stats
 except Exception as e:
@@ -59,10 +62,67 @@ except Exception:
     def template_draft(p, a=None):
         return format_draft("Template draft unavailable.")
 
+
+def _parse_seen_file_text(text):
+    """Parse seen_posts.txt: one URL per line, or 'title | url', or JSON lines."""
+    seen = set()
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # JSON line: {"link": "...", "title": "..."}
+        if line.startswith("{"):
+            try:
+                import json as _json
+                obj = _json.loads(line)
+                if isinstance(obj, dict):
+                    for k in ("link", "url", "href"):
+                        if obj.get(k):
+                            seen.add(str(obj[k]).strip())
+                    if obj.get("title"):
+                        seen.add(str(obj["title"]).strip())
+                    continue
+            except Exception:
+                pass
+        m = re.search(r"https?://[^\s|]+", line)
+        if m:
+            seen.add(m.group(0).strip().rstrip(","))
+        else:
+            # Title-only line
+            seen.add(line)
+        # Also keep title part before | for matching
+        if "|" in line and not line.startswith("http"):
+            seen.add(line.split("|")[0].strip())
+    return seen
+
+
 st.set_page_config(page_title="Leadership AI Digest", layout="wide")
 st.title("Leadership AI Daily Digest Generator")
 
-# ---------- Sidebar: secrets status (no values) ----------
+# ---------- Session state: init once, then key= only ----------
+if "edited_search_terms" not in st.session_state:
+    st.session_state.edited_search_terms = "\n".join(SEARCH_TERMS)
+if "edited_book_themes" not in st.session_state:
+    st.session_state.edited_book_themes = "\n".join(BOOK_THEMES)
+if "posts" not in st.session_state:
+    st.session_state.posts = []
+if "assessed" not in st.session_state:
+    st.session_state.assessed = []
+if "last_run_log" not in st.session_state:
+    st.session_state.last_run_log = []
+if "quota_hit" not in st.session_state:
+    st.session_state.quota_hit = False
+if "seen_urls" not in st.session_state:
+    st.session_state.seen_urls = set()
+
+def _reset_search():
+    st.session_state.edited_search_terms = "\n".join(SEARCH_TERMS)
+    st.session_state.edited_book_themes = "\n".join(BOOK_THEMES)
+
+def _log(msg):
+    st.session_state.last_run_log.append(msg)
+
+# ---------- Sidebar: status + RESTORED seen_posts.txt upload ----------
 with st.sidebar:
     st.header("Status")
     st.write(f"Gemini Key {'✅' if os.getenv('GEMINI_API_KEY') else '❌'}")
@@ -76,26 +136,32 @@ with st.sidebar:
     if "quota_until" in st.session_state:
         st.warning(f"Gemini quota hit. Retry after: {st.session_state.get('quota_retry_text','~4h')}")
 
-# ---------- Session state: init once, then key= only (no value= + key=) ----------
-if "edited_search_terms" not in st.session_state:
-    st.session_state.edited_search_terms = "\n".join(SEARCH_TERMS)
-if "edited_book_themes" not in st.session_state:
-    st.session_state.edited_book_themes = "\n".join(BOOK_THEMES)
-if "posts" not in st.session_state:
-    st.session_state.posts = []
-if "assessed" not in st.session_state:
-    st.session_state.assessed = []
-if "last_run_log" not in st.session_state:
-    st.session_state.last_run_log = []
-if "quota_hit" not in st.session_state:
-    st.session_state.quota_hit = False
-
-def _reset_search():
-    st.session_state.edited_search_terms = "\n".join(SEARCH_TERMS)
-    st.session_state.edited_book_themes = "\n".join(BOOK_THEMES)
-
-def _log(msg):
-    st.session_state.last_run_log.append(msg)
+    st.divider()
+    st.subheader("Seen posts")
+    st.caption("Upload your saved file before first run. Streamlit forgets uploads on reboot, so re-upload after each reboot.")
+    seen_file = st.file_uploader("Upload seen_posts.txt", type=["txt"], key="seen_posts_uploader")
+    if seen_file is not None:
+        try:
+            content = seen_file.read().decode("utf-8", errors="ignore")
+            parsed = _parse_seen_file_text(content)
+            # Only overwrite if file actually has content, so a re-render does not wipe it
+            if parsed:
+                st.session_state.seen_urls = parsed
+            st.success(f"Loaded {len(st.session_state.seen_urls)} seen posts. They will be filtered from Discovery.")
+        except Exception as e:
+            st.error(f"Could not read seen_posts.txt: {e}")
+    st.write(f"Seen loaded: {len(st.session_state.seen_urls)}")
+    if len(st.session_state.seen_urls) == 0:
+        st.info("No seen_posts.txt loaded yet. Upload it to avoid re-suggesting old posts.")
+    # Optional effectiveness file, kept for Sunday Snapshot workflow
+    eff_file = st.file_uploader("Upload effectiveness.txt (optional)", type=["txt"], key="effectiveness_uploader")
+    if eff_file is not None:
+        try:
+            eff_text = eff_file.read().decode("utf-8", errors="ignore")
+            st.session_state.effectiveness_text = eff_text
+            st.write(f"effectiveness.txt loaded ({len(eff_text.splitlines())} lines)")
+        except Exception:
+            pass
 
 # ---------- Step 1: Review search ----------
 st.header("Step 1 — Review search")
@@ -111,14 +177,19 @@ if st.button("Run Discovery"):
         st.error(f"Discovery import failed: {_DISCOVERY_ERR}")
     else:
         with st.spinner("Discovering…"):
-            pruned, stats = run_discovery_with_stats(search_terms=search_terms, book_themes=book_themes)
+            pruned, stats = run_discovery_with_stats(
+                search_terms=search_terms,
+                book_themes=book_themes,
+                seen_urls=st.session_state.seen_urls,
+            )
         st.session_state.posts = pruned
         st.session_state.assessed = []
-        _log(f"Discovery: raw={stats.get('raw')} deduped={stats.get('deduped')} social={stats.get('social')} web_pruned={stats.get('web_pruned')} kept={stats.get('kept_for_assessment')}")
-        # v4.2 banner — this is the pruning proof
+        _log(f"Discovery: raw={stats.get('raw')} invalid_skipped={stats.get('invalid_skipped')} seen_filtered={stats.get('seen_filtered')} deduped={stats.get('deduped')} social={stats.get('social')} web_pruned={stats.get('web_pruned')} kept={stats.get('kept_for_assessment')}")
         st.success(
             f"Discovery returned {stats.get('raw', 0)} raw posts before dedupe / pruned to "
             f"{stats.get('kept_for_assessment', 0)} for assessment. "
+            f"Seen filtered: {stats.get('seen_filtered', 0)}. "
+            f"Invalid skipped: {stats.get('invalid_skipped', 0)}. "
             f"Web articles pruned: {stats.get('web_pruned', 0)}. "
             f"Social threads: {stats.get('social', 0)}. Per-source: {stats.get('per_source', {})}"
         )
@@ -142,17 +213,17 @@ if st.session_state.posts and st.button("Assess posts (Gemini: max 12, rest heur
     assessed = []
     progress = st.progress(0)
     for i, p in enumerate(posts):
-        # Auto-skip web: 0 API calls
+        if not isinstance(p, dict):
+            # Defensive: should not happen after v4.3 normalisation, but never crash
+            continue
         if p.get("_auto_skip"):
             h = heuristic_assess(p)
             assessed.append({**p, **h})
             progress.progress((i + 1) / max(1, len(posts)))
             continue
-        # Gemini only for top N, and stop on quota
         if id(p) in to_gemini_ids and gemini is not None and not quota_hit and not st.session_state.quota_hit:
             try:
                 a = gemini.analyse_post(p)
-                # Map Gemini JSON -> decision (same thresholds as heuristic)
                 promo = int(a.get("relevance", 50) * 0.30 + a.get("conversation", 50) * 0.35 + 20)
                 if a.get("sensitive"):
                     dec, promo2 = "D_SENSITIVE", 0
@@ -179,7 +250,7 @@ if st.session_state.posts and st.button("Assess posts (Gemini: max 12, rest heur
                 h = heuristic_assess(p)
                 assessed.append({**p, **h})
             except Exception as e:
-                _log(f"Gemini analyse failed for {p.get('title','')[:60]}: {e}")
+                _log(f"Gemini analyse failed for {str(p.get('title',''))[:60]}: {e}")
                 h = heuristic_assess(p)
                 assessed.append({**p, **h})
         else:
@@ -187,7 +258,6 @@ if st.session_state.posts and st.button("Assess posts (Gemini: max 12, rest heur
             assessed.append({**p, **h})
         progress.progress((i + 1) / max(1, len(posts)))
     st.session_state.assessed = assessed
-    # Theme cap: max 2 Promote per theme
     counts_theme = {}
     for a in assessed:
         if a.get("decision") == "A_PROMOTE":
@@ -211,7 +281,6 @@ st.header("Step 2 — Review drafts")
 if not st.session_state.assessed:
     st.info("Run Discovery, then Assess posts.")
 else:
-    # Filter: default Recommended only — hides the huge Skip list (Q1)
     view = st.radio("Show", ["Recommended only (Promote + Engage)", "All", "Skipped / Wait only"], horizontal=True)
     platform_filter = st.selectbox("Platform", ["All"] + sorted({x.get("platform", "Web") for x in st.session_state.assessed}))
     text_filter = st.text_input("Filter by title / platform / link (e.g. type Medium)", "")
@@ -224,25 +293,25 @@ else:
         filtered = [x for x in filtered if x.get("platform") == platform_filter]
     if text_filter.strip():
         q = text_filter.strip().lower()
-        filtered = [x for x in filtered if q in (x.get("title", "") + x.get("platform", "") + x.get("link", "")).lower()]
+        filtered = [x for x in filtered if q in (str(x.get("title", "")) + str(x.get("platform", "")) + str(x.get("link", ""))).lower()]
     st.write(f"Showing {len(filtered)} of {len(st.session_state.assessed)} after filter")
 
     for idx, post in enumerate(filtered):
-        title = post.get("title", "Untitled")[:120]
-        with st.expander(f"{post.get('platform','Web')} - {title} | Suggested: {post.get('decision')} | Promo: {post.get('promo')} | Opp: {post.get('opp')} | Why: {post.get('reason','')[:120]}"):
-            st.markdown(f"Link: [{post.get('link','')[:80]}]({post.get('link','')})")
+        if not isinstance(post, dict):
+            continue
+        title = str(post.get("title", "Untitled"))[:120]
+        with st.expander(f"{post.get('platform','Web')} - {title} | Suggested: {post.get('decision')} | Promo: {post.get('promo')} | Opp: {post.get('opp')} | Why: {str(post.get('reason',''))[:120]}"):
+            st.markdown(f"Link: [{str(post.get('link',''))[:80]}]({post.get('link','')})")
             st.write(f"**Platform label:** {post.get('platform')}")
             st.write(f"**Why suggested {post.get('decision')}:** {post.get('reason')}")
-            st.write(f"**Snippet:** {post.get('snippet','')[:400]}")
-            # Generate draft anyway: allowed for Skip + Wait, blocked for Sensitive
+            st.write(f"**Snippet:** {str(post.get('snippet',''))[:400]}")
             if post.get("decision") == "D_SENSITIVE":
                 st.warning("Sensitive — drafting blocked.")
             else:
-                key = f"draft_{idx}_{post.get('link','')[:30]}"
+                key = f"draft_{idx}_{str(post.get('link',''))[:30]}"
                 if st.button("Generate draft anyway for this post", key=key):
                     st.info("generate_drafts: trying Gemini…")
                     draft_a = None
-                    grok_err = ""
                     try:
                         if GeminiClient is not None and not st.session_state.quota_hit:
                             g = GeminiClient()
@@ -257,14 +326,12 @@ else:
                         draft_a = template_draft(post)
                     if not draft_a:
                         draft_a = template_draft(post)
-                    # v4.2 formatting applied to every draft
                     draft_a = format_draft(draft_a)
                     st.subheader("Option A — Gemini / Template (formatted)")
                     st.markdown(draft_a)
                     st.code(draft_a, language="markdown")
                     st.text_area("Copy Option A", value=draft_a, key=f"copy_a_{idx}", height=150)
                     st.download_button("Download draft as .txt", data=draft_a, file_name="draft.txt", mime="text/plain", key=f"dl_{idx}")
-                    # Grok review only the recommended draft
                     if st.session_state.get("dual_engine") and GrokClient is not None and os.getenv("GROK_API_KEY"):
                         try:
                             grok = GrokClient()
@@ -275,8 +342,7 @@ else:
                             st.code(draft_b, language="markdown")
                             st.text_area("Copy Option B", value=draft_b, key=f"copy_b_{idx}", height=150)
                         except Exception as e:
-                            grok_err = str(e)
-                            st.info(f"Grok review failed (real error): {grok_err}. Option A above is still usable.")
+                            st.info(f"Grok review failed (real error): {e}. Option A above is still usable.")
                     elif st.session_state.get("dual_engine"):
                         st.info("Grok key missing — Option A only.")
 
