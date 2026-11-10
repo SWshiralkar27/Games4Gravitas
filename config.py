@@ -3,6 +3,11 @@
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
+# Serper auto-detect - if SERPER_API_KEY is in Secrets, use Serper; else DuckDuckGo
+import os as _os
+SERPER_API_KEY = _os.getenv("SERPER_API_KEY", "")
+SEARCH_PROVIDER = "serper" if SERPER_API_KEY else "duckduckgo"
+YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 # Search terms - same as v4.6, do not use parenthesised OR / Serper queries
 SEARCH_TERMS = [
     "corporate upskilling AI",
