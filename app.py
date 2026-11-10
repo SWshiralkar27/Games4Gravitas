@@ -226,6 +226,12 @@ if seen_file is not None:
         st.sidebar.error(f"Seen error: {e}")
 else:
     st.sidebar.caption("Re-upload after every reboot.")
+# NEW: Download - separate from Upload above. Does not change Upload / filtering.
+# Shows only after Discovery. Downloads ALL 75 raw (kept 23 + pruned 50) + old seen, so next run skips all of them.
+if st.session_state.get("discovered") or st.session_state.get("discovery_raw_links"):
+    _all_seen = set(seen_urls) | set(st.session_state.get("discovery_raw_links", [])) | {p.get("link", "") for p in st.session_state.get("discovered", []) if p.get("link")}
+    _seen_txt = "\n".join(sorted(_all_seen))
+    st.sidebar.download_button("⬇ Download seen_posts.txt (all 75 raw)", _seen_txt, file_name="seen_posts.txt", mime="text/plain", key="download_seen_v493")
 
 # 2. KEYS + DISCOVERY - one line each
 st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Grok: {'OK' if os.getenv('GROK_API_KEY') else 'MISSING'} | Model: {GEMINI_MODEL}")
