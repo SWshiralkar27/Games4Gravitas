@@ -1,5 +1,5 @@
 
-# config.py - v4.7 - Quota-aware
+# config.py - v4.7.5 - Grok fallback
 # Root: config.py
 
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -59,6 +59,10 @@ MODEL_QUOTAS = {
 QUOTA_ASSESS_NEEDS = 12   # Assess: max 12 posts to Gemini, rest heuristic
 QUOTA_DRAFT_NEEDS = 1     # Generate draft: 1 call
 QUOTA_TEST_NEEDS = 1      # Test Gemini now: 1 call
+
+# Grok fallback (separate quota from Gemini)
+GROK_MODEL = "grok-3-mini"
+GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 
 # Fallback model suggestion when 3.8 Flash is out
 QUOTA_FALLBACK_MODEL = "gemini-3.1-flash-lite"
