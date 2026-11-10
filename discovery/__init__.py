@@ -1,11 +1,11 @@
-# discovery/__init__.py - v4.7.3 - Import-safe (no top-level config import)
+# discovery/__init__.py - v4.9.3 - Import-safe (no top-level config import)
 # Path: discovery/__init__.py - upload to discovery/ folder, NOT root
 # FIX v4.7.3: Previous versions did "from config import ..." at top level.
 # If config.py changed (v4.7 added MODEL_QUOTAS etc.), a missing name broke the WHOLE discovery import
 # and app showed "OLD - import failed" even though filenames were correct.
 # This version defines __VERSION__ FIRST and imports config LAZILY inside functions with defaults,
 # so it can never fail to import. Each source (web/medium/youtube) is also lazy + try/except.
-__VERSION__ = "4.9.2"
+__VERSION__ = "4.9.3"
 
 import re
 import asyncio
