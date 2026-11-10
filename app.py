@@ -1,4 +1,4 @@
-"""app.py — Leadership AI Digest v4.3 (UI only)
+"""app.py — Leadership AI Digest v4.4 (UI only)
 FIXES in v4.3:
 - RESTORED: seen_posts.txt upload in left sidebar (dropped in v4.2 by mistake).
   Sidebar shows uploader + count. Streamlit forgets uploads on reboot,
@@ -96,6 +96,138 @@ def _parse_seen_file_text(text):
     return seen
 
 
+
+# ---------- v4.4: discovery version check + in-app safe fallback ----------
+# Your last traceback proved discovery/__init__.py on Streamlit was still OLD
+# (line 68 = crashing p.get line, line 152 = prune without seen_urls),
+# while app.py was already new. This fallback makes Run work even if you
+# forget to update discovery/__init__.py again. It does NOT replace updating it.
+try:
+    import discovery as _disc_mod
+    DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD - no _normalize_post")
+    DISCOVERY_IS_NEW = hasattr(_disc_mod, "_normalize_post") and DISCOVERY_VERSION == "4.4"
+except Exception:
+    DISCOVERY_VERSION = "OLD - import failed"
+    DISCOVERY_IS_NEW = False
+
+def _fb_safe_str(v):
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, (list, tuple)):
+        for x in v:
+            if isinstance(x, str) and x.strip():
+                return x
+        return ""
+    if isinstance(v, dict):
+        for k in ("href", "url", "link", "value", "text"):
+            if k in v and isinstance(v[k], str):
+                return v[k]
+        return ""
+    try:
+        return str(v)
+    except Exception:
+        return ""
+
+def _fb_normalize(raw):
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        s = raw.strip()
+        return {"title": s[:500], "link": "", "snippet": s[:1500], "platform": "Web - unknown", "source": "string", "comments": 0} if s else None
+    if isinstance(raw, (list, tuple)):
+        if len(raw) == 1 and isinstance(raw[0], dict):
+            return _fb_normalize(raw[0])
+        parts = [_fb_safe_str(x) for x in raw]
+        title = next((x for x in parts if x and not x.startswith("http")), "")
+        link = next((x for x in parts if x.startswith("http")), "")
+        return {"title": title[:500], "link": link, "snippet": " ".join(parts)[:1500], "platform": "Web - unknown", "source": "list", "comments": 0} if (title or link) else None
+    if isinstance(raw, dict):
+        return {"title": _fb_safe_str(raw.get("title") or raw.get("name") or ""), "link": _fb_safe_str(raw.get("link") or raw.get("url") or raw.get("href") or ""), "snippet": _fb_safe_str(raw.get("snippet") or raw.get("description") or raw.get("summary") or ""), "platform": _fb_safe_str(raw.get("platform") or "") or "Web - unknown", "comments": 0}
+    try:
+        title = _fb_safe_str(getattr(raw, "title", "") or "")
+        link = _fb_safe_str(getattr(raw, "link", "") or getattr(raw, "url", "") or "")
+        snip = _fb_safe_str(getattr(raw, "summary", "") or getattr(raw, "description", "") or "")
+        if not title and not link and not snip:
+            return None
+        return {"title": title[:500], "link": link, "snippet": snip[:1500], "platform": "Web - unknown", "comments": 0}
+    except Exception:
+        return None
+
+def _fb_run_discovery(search_terms, seen_urls):
+    """In-app fallback: same pruning, never calls buggy discovery prune. Returns (pruned, stats)."""
+    import re as _re
+    all_posts, per_source = [], {}
+    try:
+        from discovery.web_search import search_web
+        wp, wc = search_web(search_terms)
+        all_posts.extend(wp if isinstance(wp, list) else [wp])
+        per_source["web_search"] = len(all_posts)
+        per_source["web_queries"] = wc
+    except Exception as e:
+        per_source["web_search_error"] = str(e)
+    try:
+        from discovery.medium import fetch_medium
+        m = fetch_medium() or []
+        m = m if isinstance(m, list) else [m]
+        all_posts.extend(m)
+        per_source["medium"] = len(m)
+    except Exception as e:
+        per_source["medium_error"] = str(e)
+    try:
+        from discovery.youtube import fetch_youtube
+        y = fetch_youtube(search_terms) or []
+        y = y if isinstance(y, list) else [y]
+        all_posts.extend(y)
+        per_source["youtube"] = len(y)
+    except Exception as e:
+        per_source["youtube_error"] = str(e)
+    # Normalise + seen filter + dedupe + prune (web capped, social first, max 30)
+    norm, invalid = [], 0
+    for raw in all_posts:
+        n = _fb_normalize(raw)
+        if n is None:
+            invalid += 1
+        else:
+            norm.append(n)
+    seen_lower = {_fb_safe_str(s).strip().lower().rstrip("/") for s in (seen_urls or [])}
+    kept, seen_f = [], 0
+    for n in norm:
+        if _fb_safe_str(n.get("link")).strip().lower().rstrip("/") in seen_lower and n.get("link"):
+            seen_f += 1
+            continue
+        kept.append(n)
+    seen_u, seen_i, dedup = set(), set(), []
+    for n in kept:
+        u = _fb_safe_str(n.get("link")).strip().lower().rstrip("/")
+        idea = _re.sub(r"[^a-z0-9]+", " ", _fb_safe_str(n.get("title")).lower()).strip()[:120]
+        if u and u in seen_u:
+            continue
+        if idea and idea in seen_i:
+            continue
+        if u:
+            seen_u.add(u)
+        if idea:
+            seen_i.add(idea)
+        dedup.append(n)
+    social = [x for x in dedup if x.get("platform") in ("LinkedIn", "X", "Threads", "Facebook", "Instagram")]
+    web = [x for x in dedup if (x.get("platform") or "").startswith("Web -") or x.get("platform") in ("Medium", "YouTube")]
+    other = [x for x in dedup if x not in social and x not in web]
+    web_limit = 0 if len(social) >= 8 else (5 if social else 15)
+    web_kept = web[:web_limit]
+    for x in web_kept:
+        x["_auto_skip"] = True
+        x["_skip_reason"] = "Web article - no thread to join."
+    for x in social + other:
+        x["_auto_skip"] = False
+    combined = sorted(social + other + web_kept, key=lambda x: (0 if x.get("platform") in ("LinkedIn", "X", "Threads", "Facebook", "Instagram") else 1))
+    pruned = combined[:30]
+    stats = {"raw": len(all_posts), "invalid_skipped": invalid, "seen_filtered": seen_f, "deduped": len(dedup), "social": len(social), "web_total": len(web), "web_kept": len(web_kept), "web_pruned": len(web) - len(web_kept), "kept_for_assessment": len(pruned), "per_source": per_source, "fallback_used": True}
+    return pruned, stats
+
 st.set_page_config(page_title="Leadership AI Digest", layout="wide")
 st.title("Leadership AI Daily Digest Generator")
 
@@ -130,6 +262,9 @@ with st.sidebar:
     st.write(f"Search Provider {SEARCH_PROVIDER.upper()}")
     st.write(f"YouTube Key {'✅' if os.getenv('YOUTUBE_API_KEY') else '—'}")
     st.write(f"Gemini Model {GEMINI_MODEL}")
+    st.write(f"Discovery file: {DISCOVERY_VERSION}")
+    if not DISCOVERY_IS_NEW:
+        st.error("Discovery file is OLD. Re-upload discovery/__init__.py v4.4 to discovery/ folder (not root). Using in-app fallback for this run.")
     st.checkbox("Dual-engine (Gemini + Grok review)", value=True, key="dual_engine")
     if GEMINI_MODEL != "gemini-3.8-flash":
         st.error("GEMINI_MODEL must be gemini-3.8-flash in Secrets. Fix + reboot.")
@@ -173,18 +308,34 @@ search_terms = [l.strip() for l in st.session_state.edited_search_terms.splitlin
 book_themes = [l.strip() for l in st.session_state.edited_book_themes.splitlines() if l.strip()]
 
 if st.button("Run Discovery"):
-    if run_discovery_with_stats is None:
+    if run_discovery_with_stats is None and not DISCOVERY_IS_NEW:
         st.error(f"Discovery import failed: {_DISCOVERY_ERR}")
     else:
-        with st.spinner("Discovering…"):
-            pruned, stats = run_discovery_with_stats(
-                search_terms=search_terms,
-                book_themes=book_themes,
-                seen_urls=st.session_state.seen_urls,
-            )
-        st.session_state.posts = pruned
+        pruned, stats = None, {}
+        used_fallback = False
+        try:
+            with st.spinner("Discovering…"):
+                if DISCOVERY_IS_NEW:
+                    pruned, stats = run_discovery_with_stats(
+                        search_terms=search_terms,
+                        book_themes=book_themes,
+                        seen_urls=st.session_state.seen_urls,
+                    )
+                else:
+                    raise AttributeError("OLD discovery file detected - using fallback")
+        except AttributeError as ae:
+            st.warning(f"Old discovery file caused AttributeError ({ae}). Using in-app safe fallback, so Run will not crash. Still re-upload discovery/__init__.py v4.4.")
+            with st.spinner("Discovering via safe fallback…"):
+                pruned, stats = _fb_run_discovery(search_terms, st.session_state.seen_urls)
+            used_fallback = True
+        except Exception as e:
+            st.warning(f"Discovery failed ({e}). Trying safe fallback.")
+            with st.spinner("Discovering via safe fallback…"):
+                pruned, stats = _fb_run_discovery(search_terms, st.session_state.seen_urls)
+            used_fallback = True
+        st.session_state.posts = pruned or []
         st.session_state.assessed = []
-        _log(f"Discovery: raw={stats.get('raw')} invalid_skipped={stats.get('invalid_skipped')} seen_filtered={stats.get('seen_filtered')} deduped={stats.get('deduped')} social={stats.get('social')} web_pruned={stats.get('web_pruned')} kept={stats.get('kept_for_assessment')}")
+        _log(f"Discovery: raw={stats.get('raw')} invalid_skipped={stats.get('invalid_skipped')} seen_filtered={stats.get('seen_filtered')} deduped={stats.get('deduped')} social={stats.get('social')} web_pruned={stats.get('web_pruned')} kept={stats.get('kept_for_assessment')} fallback={used_fallback}")
         st.success(
             f"Discovery returned {stats.get('raw', 0)} raw posts before dedupe / pruned to "
             f"{stats.get('kept_for_assessment', 0)} for assessment. "
@@ -192,6 +343,7 @@ if st.button("Run Discovery"):
             f"Invalid skipped: {stats.get('invalid_skipped', 0)}. "
             f"Web articles pruned: {stats.get('web_pruned', 0)}. "
             f"Social threads: {stats.get('social', 0)}. Per-source: {stats.get('per_source', {})}"
+            + (" [SAFE FALLBACK USED - update discovery file]" if used_fallback else "")
         )
         if stats.get("social", 0) == 0:
             st.warning("No social threads found — only web articles. Broaden search terms (try 'AI leadership', 'leading teams with AI') or check Serper key. Web articles are auto-skipped, not assessed by Gemini.")
