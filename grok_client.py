@@ -1,5 +1,5 @@
 
-# grok_client.py - v4.7.5 - Grok fallback generator (fail-open)
+# grok_client.py - v4.9.2 - Grok fallback generator (fail-open)
 # Root: grok_client.py - NEW file
 # When Gemini quota is out / 503 / init failed, Grok takes over as generator.
 # Grok has its own quota, separate from Gemini 20/day, so it still works when Gemini is out.
@@ -56,7 +56,7 @@ class GrokClient:
                     "max_tokens": max_tokens,
                     "temperature": 0.7,
                 },
-                timeout=40,
+                timeout=20,
             )
         except Exception as e:
             raise GrokTransientError(f"Grok request failed (network/timeout): {e}")
