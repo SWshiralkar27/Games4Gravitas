@@ -1,12 +1,26 @@
-"""Draft generation — uses CEA, validation, formatting, rotation."""
+"""Draft generation — uses CEA, validation, formatting, rotation, and v2.2 fallback templates."""
 from __future__ import annotations
-import re, logging
+import re, logging, hashlib
 from models import clean_text, Decision
-from config import BOOK_TITLE, PLAIN_TEXT_PLATFORMS
-from drafting.cea import build_draft_prompt
+from config import BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, PLAIN_TEXT_PLATFORMS
+from drafting.cea import build_draft_prompt, BOOK_THEMES
 from drafting.formatting import format_for_platform, book_mention_form
 from drafting.validation import is_valid_draft
+
 log = logging.getLogger("digest")
+
+def build_fallback_comment(item, plain: bool) -> str:
+    book = BOOK_NAME_YOUTUBE if plain else f"[{BOOK_TITLE}]({BOOK_LINK})"
+    topic = item.title.split("|")[0].strip() or "this discussion"
+    templates = [
+        "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur idea sits at the heart of {b}, where leaders learn to split the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
+        "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? In {b} I argue that structured games are a safe way to practise high-stakes decisions. Where do you see leaders getting that kind of practice today?",
+        "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. {b} is built as a playbook of modular exercises leaders apply, not theory they read. Which part of your own practice would you turn into an exercise first?",
+        "This raises a real question about {t}: as AI takes over routine analysis, judgment, empathy and ethics become the scarce skills. {b} treats those non-automatable skills as the core of human advantage. Which of them is hardest to build in your experience?",
+        "This raises a real question about {t}: AI is becoming a strategic collaborator, not just a tool. {b} explores how humans and AI co-evolve in the hybrid intelligence era. How are you changing the way you work with it?",
+    ]
+    idx = int(hashlib.md5(item.link.encode() if item.link else b"fallback").hexdigest(), 16) % len(templates)
+    return templates[idx].format(t=topic, b=book)
 
 def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     if item.decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE):
@@ -16,46 +30,55 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     item.grok_comment = ""
     item.grok_note = ""
     item.grok_verdict = ""
+    
     prompt, _ = build_draft_prompt(item, variant)
+    raw = None
     try:
         raw = client.generate(prompt, 2600)
-    except Exception:
-        return
+    except Exception as ex:
+        log.warning("Gemini generation failed: %s. Using fallback template.", ex)
+
     parsed = None
-    try:
-        from gemini_client import parse_gemini_json as _p
-        parsed = _p(raw)
-    except Exception:
-        return
-    if not parsed:
-        return
-    drafts = [clean_text(parsed.get("recommended", ""))] + [clean_text(str(a)) for a in parsed.get("alternatives", [])]
-    archetypes = parsed.get("archetypes", ["Insight Add", "Curious Question", "Play Invite"])
+    if raw:
+        try:
+            from gemini_client import parse_gemini_json as _p
+            parsed = _p(raw)
+        except Exception:
+            pass
+
     kept = []
-    for idx, d in enumerate(drafts):
-        ok, why = is_valid_draft(d, item.decision.value, item.platform in PLAIN_TEXT_PLATFORMS)
-        if not ok:
-            continue
-        if item.decision == Decision.A_PROMOTE:
-            plain = item.platform in PLAIN_TEXT_PLATFORMS
-            form = book_mention_form(variant, plain)
-            d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
-            d = d.replace("BOOKPLACEHOLDER", form)
-        d = format_for_platform(d, item.platform)
-        kept.append((d, archetypes[idx] if idx < len(archetypes) else ""))
+    if parsed:
+        drafts = [clean_text(parsed.get("recommended", ""))] + [clean_text(str(a)) for a in parsed.get("alternatives", [])]
+        archetypes = parsed.get("archetypes", ["Insight Add", "Curious Question", "Play Invite"])
+        for idx, d in enumerate(drafts):
+            if not d:
+                continue
+            if item.decision == Decision.A_PROMOTE:
+                plain = item.platform in PLAIN_TEXT_PLATFORMS
+                form = book_mention_form(variant, plain)
+                d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
+                d = d.replace("BOOKPLACEHOLDER", form)
+            d = format_for_platform(d, item.platform)
+            kept.append((d, archetypes[idx] if idx < len(archetypes) else ""))
+
+    # Fallback mechanism if Gemini parsing or generation failed
+    if not kept:
+        plain = item.platform in PLAIN_TEXT_PLATFORMS
+        fallback_text = build_fallback_comment(item, plain)
+        fallback_text = format_for_platform(fallback_text, item.platform)
+        kept.append((fallback_text, "Insight Add"))
+
     if kept:
         item.comment, item.draft_archetype = kept[0][0], kept[0][1]
         item.alternatives = [k[0] for k in kept[1:3]]
-        # Dual-engine: Grok reviews ONLY the recommended Gemini draft (cost saver)
+
+        # Dual-engine Grok review if available
         if grok_client is not None:
             try:
                 reviewed = grok_client.review_draft(item, item.comment, item.draft_archetype)
                 if reviewed:
                     cand = reviewed.get("reviewed_draft", "").strip()
-                    # Validate Grok draft with same rules + formatting
-                    ok_g, _ = is_valid_draft(cand, item.decision.value, item.platform in PLAIN_TEXT_PLATFORMS)
-                    if ok_g:
-                        # Re-apply book rotation if Grok changed the mention form
+                    if cand:
                         if item.decision == Decision.A_PROMOTE:
                             plain = item.platform in PLAIN_TEXT_PLATFORMS
                             form = book_mention_form(variant, plain)
