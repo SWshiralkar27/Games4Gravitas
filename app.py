@@ -1,4 +1,4 @@
-"""app.py — Leadership AI Digest v4.4 (UI only)
+"""app.py — Leadership AI Digest v4.5 (UI only)
 FIXES in v4.3:
 - RESTORED: seen_posts.txt upload in left sidebar (dropped in v4.2 by mistake).
   Sidebar shows uploader + count. Streamlit forgets uploads on reboot,
@@ -97,7 +97,7 @@ def _parse_seen_file_text(text):
 
 
 
-# ---------- v4.4: discovery version check + in-app safe fallback ----------
+# ---------- v4.5: discovery version check + in-app safe fallback ----------
 # Your last traceback proved discovery/__init__.py on Streamlit was still OLD
 # (line 68 = crashing p.get line, line 152 = prune without seen_urls),
 # while app.py was already new. This fallback makes Run work even if you
@@ -105,7 +105,7 @@ def _parse_seen_file_text(text):
 try:
     import discovery as _disc_mod
     DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD - no _normalize_post")
-    DISCOVERY_IS_NEW = hasattr(_disc_mod, "_normalize_post") and DISCOVERY_VERSION == "4.4"
+    DISCOVERY_IS_NEW = hasattr(_disc_mod, "_normalize_post") and str(DISCOVERY_VERSION) in ("4.4", "4.5")
 except Exception:
     DISCOVERY_VERSION = "OLD - import failed"
     DISCOVERY_IS_NEW = False
@@ -264,7 +264,7 @@ with st.sidebar:
     st.write(f"Gemini Model {GEMINI_MODEL}")
     st.write(f"Discovery file: {DISCOVERY_VERSION}")
     if not DISCOVERY_IS_NEW:
-        st.error("Discovery file is OLD. Re-upload discovery/__init__.py v4.4 to discovery/ folder (not root). Using in-app fallback for this run.")
+        st.error("Discovery file is OLD. Re-upload discovery/__init__.py v4.5 to discovery/ folder (not root). Using in-app fallback for this run.")
     st.checkbox("Dual-engine (Gemini + Grok review)", value=True, key="dual_engine")
     if GEMINI_MODEL != "gemini-3.8-flash":
         st.error("GEMINI_MODEL must be gemini-3.8-flash in Secrets. Fix + reboot.")
@@ -324,7 +324,7 @@ if st.button("Run Discovery"):
                 else:
                     raise AttributeError("OLD discovery file detected - using fallback")
         except AttributeError as ae:
-            st.warning(f"Old discovery file caused AttributeError ({ae}). Using in-app safe fallback, so Run will not crash. Still re-upload discovery/__init__.py v4.4.")
+            st.warning(f"Old discovery file caused AttributeError ({ae}). Using in-app safe fallback, so Run will not crash. Still re-upload discovery/__init__.py v4.5.")
             with st.spinner("Discovering via safe fallback…"):
                 pruned, stats = _fb_run_discovery(search_terms, st.session_state.seen_urls)
             used_fallback = True
