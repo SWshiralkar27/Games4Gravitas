@@ -661,20 +661,46 @@ else:
                     st.markdown(draft_a); st.code(draft_a, language="markdown")
                     st.text_area("Copy Option A", value=draft_a, key=f"copy_a_{idx}_v472", height=150)
 
-with st.expander("Debug"):
-    if st.button("Test Gemini now", key="test_gemini_btn_v472"):
-        u3 = get_usage(GEMINI_MODEL)
-        if u3["remaining"] <= 0:
-            st.error(f"Quota out: {u3['used']}/{u3['limit']} used. Resets {u3['reset_label']}. Do NOT keep clicking Test.")
-        elif GeminiClient is None:
-            st.error(f"Gemini import failed: {_GEMINI_IMPORT_ERR}")
-        else:
-            try:
-                c = GeminiClient(api_key=os.getenv("GEMINI_API_KEY",""), model=GEMINI_MODEL)
-                if not c.is_ready(): st.error(f"Gemini init failed: {c.init_error}")
-                else: st.success(f"Gemini OK ({c.model}): {c.test()}")
-            except GeminiQuotaExceeded as qe: st.error(f"QuotaExceeded: {qe}")
-            except Exception as e: st.error(f"Gemini failed (real error): {e}")
+with st.expander("Dual-Engine Debug & Diagnostic"):
+    col_g1, col_g2 = st.columns(2)
+    
+    with col_g1:
+        if st.button("Test Gemini now", key="test_gemini_diag_v493"):
+            u3 = get_usage(GEMINI_MODEL)
+            if u3["remaining"] <= 0:
+                st.error(f"Quota out: {u3['used']}/{u3['limit']} used. Resets {u3['reset_label']}. Do NOT keep clicking Test.")
+            elif GeminiClient is None:
+                st.error(f"Gemini import failed: {_GEMINI_IMPORT_ERR}")
+            else:
+                try:
+                    c = GeminiClient(api_key=os.getenv("GEMINI_API_KEY",""), model=GEMINI_MODEL)
+                    if not c.is_ready(): 
+                        st.error(f"Gemini init failed: {c.init_error}")
+                    else: 
+                        st.success(f"Gemini OK ({c.model}): {c.test()}")
+                except GeminiQuotaExceeded as qe: 
+                    st.error(f"QuotaExceeded: {qe}")
+                except Exception as e: 
+                    st.error(f"Gemini failed (real error): {e}")
+                    
+    with col_g2:
+        if st.button("Test Grok Now", key="test_grok_diag_v493"):
+            st.write(f"Grok Model: {GROK_MODEL}")
+            if GrokClient is None:
+                st.error("GrokClient failed to import.")
+            else:
+                try:
+                    gc = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
+                    if not gc.is_ready():
+                        st.error(f"Grok init failed: {getattr(gc, 'init_error', 'Unknown')}")
+                    else:
+                        g_res = gc.generate("Say 'Grok online' in 2 words.")
+                        st.success(f"Grok OK: {g_res}")
+                except Exception as ge:
+                    st.error(f"Grok failed (real error): {ge}")
+
+    st.write(f"GEMINI_MODEL in use: {GEMINI_MODEL} | GROK_MODEL: {GROK_MODEL}")
+    st.write(f"Quota file: quota_usage.json (auto-created, resets midnight Pacific)")
     st.write(f"GEMINI_MODEL in use: {GEMINI_MODEL}")
     st.write(f"Quota file: quota_usage.json (auto-created, resets midnight Pacific)")
 
