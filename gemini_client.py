@@ -1,23 +1,38 @@
-"""gemini_client.py — Leadership AI Digest v4.2
-FIXES:
-- google.genai ONLY. No google.generativeai import anywhere.
-- Never tries gemini-2.0-flash. Model is always gemini-3.8-flash
-  (or GEMINI_MODEL if it is not a retired model).
-- 429 quota is raised as QuotaExceeded with retry_after_seconds parsed,
-  so app.py can stop hammering the API and switch to heuristic + template.
-- Empty response raises GeminiUnavailable with real details, not "".
+
+"""gemini_client.py — Leadership AI Digest v4.6
+FIX for: google-genai not installed: cannot import name 'genai' from 'google'
+
+Root cause is requirements.txt, not code:
+- Streamlit Cloud installs ONLY what is in requirements.txt on every reboot.
+- If requirements.txt is missing google-genai, or has google-generativeai
+  instead, `from google import genai` fails with (unknown location).
+- google-generativeai creates a `google` namespace that shadows google-genai.
+
+Fix in this file: clearer error that tells you exactly what to fix in
+requirements.txt, plus a second import attempt via importlib.
+Fix in requirements.txt (v4.6, upload to root):
+  google-genai>=1.0.0  present, google-generativeai REMOVED.
+
+Model: never 2.0-flash, always gemini-3.8-flash.
 """
 import json
 import os
 import re
 
+_genai_import_error = None
+genai = None
 try:
     from google import genai
-except Exception as e:  # pragma: no cover
-    genai = None
-    _GENAI_IMPORT_ERROR = e
-else:
-    _GENAI_IMPORT_ERROR = None
+except Exception as e:
+    _genai_import_error = e
+    # Second attempt: importlib sometimes resolves when `from google import` hits a broken namespace
+    try:
+        import importlib
+        genai = importlib.import_module("google.genai")
+        _genai_import_error = None
+    except Exception as e2:
+        genai = None
+        _genai_import_error = e2
 
 from config import GEMINI_API_KEY, GEMINI_MODEL
 
@@ -33,7 +48,6 @@ class QuotaExceeded(Exception):
 
 
 def _parse_retry_after(text):
-    """Parse 'Please retry in 4h44m21s' / 'retry in 123.4s' -> seconds."""
     if not text:
         return None
     m = re.search(r"retry in\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)", text, re.I)
@@ -66,20 +80,20 @@ class GeminiClient:
         if not self.api_key:
             raise GeminiUnavailable("GEMINI_API_KEY missing in Secrets.")
         if genai is None:
-            raise GeminiUnavailable(f"google-genai not installed: {_GENAI_IMPORT_ERROR}")
-        # New SDK only.
+            raise GeminiUnavailable(
+                f"google-genai not installed: {_genai_import_error}. "
+                "Fix requirements.txt in repo root: add line `google-genai>=1.0.0`, "
+                "delete any line `google-generativeai`, commit, then Streamlit Manage app > Reboot. "
+                "Streamlit installs only from requirements.txt."
+            )
         self.client = genai.Client(api_key=self.api_key)
 
     def _call(self, prompt):
-        """Single call, no fallback to retired models, no old SDK."""
         try:
             resp = self.client.models.generate_content(model=self.model, contents=prompt)
             text = (getattr(resp, "text", "") or "").strip()
             if not text:
-                raise GeminiUnavailable(
-                    f"Gemini returned empty / failed. Model: {self.model}. "
-                    "No text in response."
-                )
+                raise GeminiUnavailable(f"Gemini returned empty / failed. Model: {self.model}. No text in response.")
             return text
         except QuotaExceeded:
             raise
@@ -89,8 +103,7 @@ class GeminiClient:
             msg = str(e)
             if _is_quota_error(msg):
                 raise QuotaExceeded(
-                    f"Gemini quota exceeded (Free Tier, 20 req/day for {self.model}). "
-                    f"Details: {msg}",
+                    f"Gemini quota exceeded (Free Tier, 20 req/day for {self.model}). Details: {msg}",
                     retry_after_seconds=_parse_retry_after(msg),
                 )
             if "404" in msg and "2.0-flash" in msg:
@@ -117,7 +130,6 @@ class GeminiClient:
             f"Platform: {platform}\nTitle: {title}\nSnippet: {snippet}"
         )
         raw = self._call(prompt)
-        # Strip code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
         raw = re.sub(r"\s*```$", "", raw)
         try:
@@ -142,8 +154,6 @@ class GeminiClient:
             f"Post: {title}\n{snippet}"
         )
         draft = self._call(prompt)
-        # Formatting (bold / italics / line breaks) is applied in drafting/formatting.py
-        # so both Gemini and template drafts look identical.
         try:
             from drafting.formatting import format_draft
             draft = format_draft(draft)
@@ -154,3 +164,4 @@ class GeminiClient:
 
 def get_gemini_client(api_key=None, model=None):
     return GeminiClient(api_key=api_key, model=model)
+
