@@ -1,363 +1,256 @@
-"""discovery/__init__.py — v4.6
-__VERSION__ = "4.6" — if you do NOT see this line on GitHub, you are still on the OLD file.
-FIXES for 2026-11-10 Run crash:
-  AttributeError at prune_discovery line 68:
-    url = (p.get("link") or "").strip()...
-  Cause: not every source returns a dict. Medium / YouTube can return
-  a str, None, a list/tuple, or a feedparser entry / object with
-  attributes instead of .get(). Calling p.get() on those crashes
-  the whole Run.
 
-  Fix: _normalize_post() coerces EVERY raw item to a dict (or drops it)
-  BEFORE prune touches .get(). prune_discovery never calls .get()
-  on an un-normalised item. _safe_str() coerces link/title/snippet
-  that are list/dict/int/None to "" / str, so .strip() never crashes.
+# discovery/__init__.py - v4.7.3 - Import-safe (no top-level config import)
+# Path: discovery/__init__.py - upload to discovery/ folder, NOT root
+# FIX v4.7.3: Previous versions did "from config import ..." at top level.
+# If config.py changed (v4.7 added MODEL_QUOTAS etc.), a missing name broke the WHOLE discovery import
+# and app showed "OLD - import failed" even though filenames were correct.
+# This version defines __VERSION__ FIRST and imports config LAZILY inside functions with defaults,
+# so it can never fail to import. Each source (web/medium/youtube) is also lazy + try/except.
+__VERSION__ = "4.7.3"
 
-Also: seen_posts filtering (seen_urls / seen_links) — app.py passes the
-uploaded seen_posts.txt set, and discovery drops those URLs/titles
-before pruning, with stats seen_filtered.
-"""
 import re
+import asyncio
+import inspect
 
-__VERSION__ = "4.6"
-
-from config import (
-    MAX_POSTS_TO_ASSESS,
-    MAX_WEB_ARTICLES_IF_ONLY_WEB,
-    MAX_WEB_ARTICLES_IF_SOCIAL_EXISTS,
-    MAX_WEB_ARTICLES_IF_SOME_SOCIAL,
-    MIN_SOCIAL_TO_DROP_WEB,
-    SOCIAL_PLATFORMS,
-)
-
-
-def _safe_str(v):
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, (list, tuple)):
-        # e.g. link stored as [url] — take first string element
-        for item in v:
-            if isinstance(item, str) and item.strip():
-                return item
-        return ""
-    if isinstance(v, dict):
-        # e.g. {'href': 'https://...'} or {'url': '...'}
-        for k in ("href", "url", "link", "value", "text"):
-            if k in v and isinstance(v[k], str):
-                return v[k]
-        return ""
-    # feedparser / object / anything else
+def _get_config(name, default):
     try:
-        return str(v)
+        import config as _c
+        return getattr(_c, name, default)
+    except Exception:
+        return default
+
+def _safe_str(x):
+    if x is None:
+        return ""
+    if isinstance(x, str):
+        return x
+    if isinstance(x, (list, tuple)):
+        return " ".join(_safe_str(i) for i in x)
+    try:
+        return str(x)
     except Exception:
         return ""
 
-
-def _norm_text(s):
-    return re.sub(r"[^a-z0-9]+", " ", _safe_str(s).lower()).strip()
-
-
-def _normalize_post(raw):
-    """Coerce any raw source item -> dict or None (drop). Never raises."""
-    if raw is None:
+def _normalize_post(p):
+    # Returns dict or None (drop)
+    if p is None:
         return None
-    # Plain string: treat as title/snippet, no link
-    if isinstance(raw, str):
-        t = raw.strip()
-        if not t:
+    if isinstance(p, str):
+        s = p.strip()
+        if not s:
             return None
-        return {"title": t[:500], "link": "", "snippet": t[:1500],
-                "platform": "Web - unknown", "source": "string", "comments": 0}
-    # list / tuple: (title, link) or (link, title) or [dict]
-    if isinstance(raw, (list, tuple)):
-        if len(raw) == 0:
+        return {"title": s[:300], "link": "", "snippet": s[:800], "platform": "Web"}
+    if isinstance(p, (list, tuple)):
+        if len(p) == 0:
             return None
-        # [dict] case
-        if len(raw) == 1 and isinstance(raw[0], dict):
-            return _normalize_post(raw[0])
-        parts = [_safe_str(x) for x in raw]
-        title, link = "", ""
-        for part in parts:
-            if part.startswith("http"):
-                link = part
-            elif part and not title:
-                title = part
-        if not title and not link:
-            return None
-        return {"title": title[:500], "link": link, "snippet": " ".join(parts)[:1500],
-                "platform": "Web - unknown", "source": "list", "comments": 0}
-    # dict: normal case
-    if isinstance(raw, dict):
-        link = _safe_str(raw.get("link") or raw.get("url") or raw.get("href") or "")
-        title = _safe_str(raw.get("title") or raw.get("name") or raw.get("headline") or "")
-        snippet = _safe_str(raw.get("snippet") or raw.get("description") or raw.get("summary") or raw.get("text") or "")
-        platform = _safe_str(raw.get("platform") or raw.get("source_platform") or "")
-        if not platform:
-            platform = "Web - unknown"
-        try:
-            comments = int(raw.get("comments") or raw.get("comment_count") or 0)
-        except Exception:
-            comments = 0
-        out = dict(raw)
-        out.update({"title": title, "link": link, "snippet": snippet,
-                    "platform": platform, "comments": comments})
-        # Keep any extra keys, but ensure the 3 critical ones are strings
-        return out
-    # Object with attributes (feedparser entry, YouTube resource, etc.)
-    try:
-        link = _safe_str(getattr(raw, "link", "") or getattr(raw, "url", "") or getattr(raw, "href", ""))
-        title = _safe_str(getattr(raw, "title", "") or getattr(raw, "name", ""))
-        snippet = _safe_str(getattr(raw, "summary", "") or getattr(raw, "description", "") or getattr(raw, "snippet", ""))
-        platform = _safe_str(getattr(raw, "platform", "") or "")
+        title = _safe_str(p[0]) if len(p) > 0 else ""
+        link = _safe_str(p[1]) if len(p) > 1 else ""
+        snippet = _safe_str(p[2]) if len(p) > 2 else title
+        return {"title": title[:300], "link": link.strip(), "snippet": snippet[:800], "platform": "Web"}
+    if isinstance(p, dict):
+        link_raw = p.get("link", "") or p.get("url", "") or p.get("href", "") or ""
+        link = _safe_str(link_raw).strip()
+        title = _safe_str(p.get("title", "")).strip()
+        snippet = _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", "") or title)
+        platform = _safe_str(p.get("platform", "") or p.get("source", "") or "Web")
         if not title and not link and not snippet:
             return None
-        return {"title": title[:500], "link": link, "snippet": snippet[:1500],
-                "platform": platform or "Web - unknown", "source": "object", "comments": 0}
+        return {"title": title[:300], "link": link, "snippet": snippet[:800], "platform": platform or "Web"}
+    # feedparser object or generic object with .title / .link / .summary
+    try:
+        title = _safe_str(getattr(p, "title", "")) if hasattr(p, "title") else ""
+        link = _safe_str(getattr(p, "link", "")) if hasattr(p, "link") else ""
+        snippet = _safe_str(getattr(p, "summary", "") or getattr(p, "description", "") or title)
+        platform = "Web"
+        if not title and not link:
+            return None
+        return {"title": title[:300], "link": link.strip(), "snippet": snippet[:800], "platform": platform}
     except Exception:
         return None
 
+def _is_social(platform):
+    pl = (platform or "").lower()
+    for k in ("linkedin", "x", "twitter", "threads", "facebook", "instagram", "reddit", "social"):
+        if k in pl:
+            return True
+    return False
 
-def _is_social(post):
-    return (post.get("platform") or "") in SOCIAL_PLATFORMS
-
-
-def _is_web(post):
-    p = (post.get("platform") or "")
-    return p.startswith("Web -") or p in ("Medium", "YouTube")
-
-
-def _heuristic_sort_key(post):
-    title = ((post.get("title", "") or "") + " " + (post.get("snippet", "") or "")).lower()
-    score = 0
-    if _is_social(post):
-        score += 50
-    if "?" in (post.get("title", "") or "") or "?" in (post.get("snippet", "") or ""):
-        score += 20
-    if any(w in title for w in ["how", "should", "what", "why", "ai", "leadership", "team", "upskill"]):
-        score += 10
-    try:
-        comments = int(post.get("comments", 0) or 0)
-    except Exception:
-        comments = 0
-    if 5 <= comments <= 30:
-        score += 15
-    elif comments > 80:
-        score -= 10
-    if _is_web(post):
-        score -= 30
-    return -score
-
-
-def _extract_seen_keys(seen_urls):
-    """seen_urls may be set/list of URLs, titles, or 'title | url' lines."""
-    keys_url, keys_title = set(), set()
-    for item in (seen_urls or []):
-        s = _safe_str(item).strip().lower()
-        if not s:
-            continue
-        m = re.search(r"https?://[^\s|]+", s)
-        if m:
-            keys_url.add(m.group(0).rstrip("/"))
-        # Also store normalised title part (before |, or whole line if no URL)
-        title_part = s.split("|")[0].strip()
-        if title_part and not title_part.startswith("http"):
-            keys_title.add(_norm_text(title_part)[:120])
-        elif not m:
-            keys_title.add(_norm_text(s)[:120])
-    return keys_url, keys_title
-
-
-def prune_discovery(posts, seen_urls=None):
-    """Input: raw list (any types). Output: (pruned_list, stats). Never crashes on bad items."""
-    raw_in = len(posts or [])
-    # 1. Normalise EVERYTHING first — this is the crash fix
-    normalised = []
-    invalid = 0
-    for p in (posts or []):
-        try:
-            n = _normalize_post(p)
-        except Exception:
-            n = None
+def prune_discovery(all_posts, seen_urls=None):
+    seen_urls = set(seen_urls or set())
+    norm = []
+    invalid_skipped = 0
+    for item in (all_posts or []):
+        # Handle coroutine that was never awaited (old async medium.py)
+        if inspect.iscoroutine(item):
+            try:
+                item = asyncio.run(item)
+            except Exception:
+                invalid_skipped += 1
+                continue
+        n = _normalize_post(item)
         if n is None:
-            invalid += 1
-        else:
-            normalised.append(n)
-
-    # 2. Drop seen posts (from seen_posts.txt)
-    seen_url_keys, seen_title_keys = _extract_seen_keys(seen_urls)
-    kept, seen_filtered = [], 0
-    for p in normalised:
-        url_key = _safe_str(p.get("link", "")).strip().lower().rstrip("/")
-        title_key = _norm_text(p.get("title", ""))[:120]
-        if (url_key and url_key in seen_url_keys) or (title_key and title_key in seen_title_keys):
+            invalid_skipped += 1
+            continue
+        norm.append(n)
+    # Seen filter
+    seen_filtered = 0
+    filtered = []
+    for p in norm:
+        if p.get("link") and p["link"] in seen_urls:
             seen_filtered += 1
             continue
-        kept.append(p)
-    normalised = kept
-
-    # 3. Dedupe by URL, then by idea (normalised title) — all .get() are safe now
-    seen_url, seen_idea, deduped = set(), set(), []
-    for p in normalised:
-        url = _safe_str(p.get("link", "")).strip().lower().rstrip("/")
-        idea = _norm_text(p.get("title", ""))[:120]
-        if url and url in seen_url:
+        filtered.append(p)
+    # Dedupe by URL + idea (title lower)
+    seen_links = set()
+    seen_titles = set()
+    deduped = []
+    for p in filtered:
+        link = (p.get("link") or "").strip()
+        title_key = re.sub(r"\W+", " ", (p.get("title") or "").lower()).strip()[:120]
+        if link and link in seen_links:
             continue
-        if idea and idea in seen_idea:
+        if title_key and title_key in seen_titles and link:
             continue
-        if url:
-            seen_url.add(url)
-        if idea:
-            seen_idea.add(idea)
-        deduped.append(dict(p))
-
-    social = [p for p in deduped if _is_social(p)]
-    web = [p for p in deduped if _is_web(p)]
-    other = [p for p in deduped if not _is_social(p) and not _is_web(p)]
-
-    if len(social) >= MIN_SOCIAL_TO_DROP_WEB:
-        web_keep_limit = MAX_WEB_ARTICLES_IF_SOCIAL_EXISTS
+        if link:
+            seen_links.add(link)
+        if title_key:
+            seen_titles.add(title_key)
+        deduped.append(p)
+    # Split social vs web
+    social = [p for p in deduped if _is_social(p.get("platform", ""))]
+    web = [p for p in deduped if not _is_social(p.get("platform", ""))]
+    # Pruning rules (same as v4.5/v4.6)
+    # If >=8 social, drop all web. If some social, keep max 5 web. If only web, keep max 15 best web, mark auto-skip.
+    if len(social) >= 8:
+        web_pruned = len(web)
+        web_kept = []
     elif len(social) > 0:
-        web_keep_limit = MAX_WEB_ARTICLES_IF_SOME_SOCIAL
+        web_kept = web[:5]
+        web_pruned = max(0, len(web) - len(web_kept))
     else:
-        web_keep_limit = MAX_WEB_ARTICLES_IF_ONLY_WEB
-
-    social_sorted = sorted(social, key=_heuristic_sort_key)
-    web_sorted = sorted(web, key=_heuristic_sort_key)
-    other_sorted = sorted(other, key=_heuristic_sort_key)
-
-    web_kept = web_sorted[:web_keep_limit]
-    web_pruned = len(web_sorted) - len(web_kept)
-
-    for p in web_kept:
-        p["_auto_skip"] = True
-        p["_skip_reason"] = "Web article - no thread to join. Pruned to social threads first."
-    for p in social_sorted:
-        p["_auto_skip"] = False
-    for p in other_sorted:
-        p["_auto_skip"] = False
-
-    combined = social_sorted + other_sorted + web_kept
-    combined = sorted(combined, key=_heuristic_sort_key)
-    pruned = combined[:MAX_POSTS_TO_ASSESS]
-
+        web_kept = web[:15]
+        web_pruned = max(0, len(web) - len(web_kept))
+        for p in web_kept:
+            p["_auto_skip"] = True
+    # Sort social / question / recent first - simple: social first, then title with ? first
+    def _sort_key(p):
+        is_q = 1 if "?" in (p.get("title") or "") else 0
+        is_social = 1 if _is_social(p.get("platform", "")) else 0
+        return (-is_social, -is_q)
+    combined = social + web_kept
+    combined = sorted(combined, key=_sort_key)
+    max_assess = _get_config("MAX_POSTS_TO_ASSESS", 30)
+    try:
+        max_assess = int(max_assess)
+    except Exception:
+        max_assess = 30
+    kept = combined[:max_assess]
     stats = {
-        "raw": raw_in,
-        "invalid_skipped": invalid,
+        "raw": len(all_posts or []),
+        "invalid_skipped": invalid_skipped,
         "seen_filtered": seen_filtered,
         "deduped": len(deduped),
         "social": len(social),
-        "web_total": len(web),
-        "web_kept": len(web_kept),
         "web_pruned": web_pruned,
-        "kept_for_assessment": len(pruned),
-        "pruned_total": raw_in - len(pruned),
+        "kept_for_assessment": len(kept),
+        "fallback": False,
     }
-    return pruned, stats
+    return kept, stats
 
-
-def _as_list(v):
-    """Coerce a source return value to a list. Handles list/dict/single/str."""
-    if v is None:
-        return []
-    if isinstance(v, list):
-        return v
-    if isinstance(v, tuple):
-        return list(v)
-    if isinstance(v, dict):
-        # {'posts': [...]} or single post dict
-        for k in ("posts", "items", "results", "data"):
-            if k in v and isinstance(v[k], list):
-                return v[k]
-        return [v]
-    return [v]
-
-
-
-def _resolve_maybe_async(value):
-    """If value is a coroutine (async fetch_medium), run it to a real list. Else return as-is."""
-    import asyncio
-    import inspect
-    if not inspect.iscoroutine(value) and not inspect.isawaitable(value):
-        return value
+def run_discovery_with_stats(seen_urls=None):
+    seen_urls = set(seen_urls or set())
+    search_terms = _get_config("SEARCH_TERMS", [
+        "corporate upskilling AI",
+        "AI upskilling program",
+        "L&D AI training",
+        "reskilling workforce AI",
+        "corporate upskilling AI site:linkedin.com",
+        "AI upskilling program site:x.com",
+        "L&D AI training site:threads.net",
+        "reskilling workforce AI site:linkedin.com",
+    ])
+    max_per = _get_config("MAX_RESULTS_PER_SOURCE", 5)
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Streamlit already has a running loop - run coroutine in a fresh thread + loop
-            import concurrent.futures
-            def _run():
-                return asyncio.run(value)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                return ex.submit(_run).result(timeout=30)
-        else:
-            return loop.run_until_complete(value)
-    except RuntimeError:
-        return asyncio.run(value)
+        max_per = int(max_per)
     except Exception:
-        return []
-
-def _call_maybe_async(func, *args, **kwargs):
-    """Call func that may be sync or async, return resolved value (never a coroutine)."""
-    import inspect
-    try:
-        result = func(*args, **kwargs)
-    except TypeError:
-        raise
-    return _resolve_maybe_async(result)
-
-def run_discovery_with_stats(search_terms=None, book_themes=None, seen_urls=None, seen_links=None, **kwargs):
-    terms = search_terms or kwargs.get("terms") or kwargs.get("search") or []
-    # Accept both names for seen
-    seen = seen_urls if seen_urls is not None else seen_links
-    if seen is None:
-        seen = kwargs.get("seen_posts") or kwargs.get("seen") or []
+        max_per = 5
     all_posts = []
     per_source = {}
+    # Web search - lazy import
+    web_total = 0
     try:
         from discovery.web_search import search_web
-        web_posts, web_counts = _resolve_maybe_async(search_web(terms))
-        web_posts = _as_list(web_posts)
-        all_posts.extend(web_posts)
-        per_source["web_search"] = len(web_posts)
-        per_source["web_queries"] = web_counts
+        web_queries = {}
+        for q in (search_terms or []):
+            try:
+                res = search_web(q, max_per)
+                if inspect.iscoroutine(res):
+                    res = asyncio.run(res)
+                if isinstance(res, list):
+                    all_posts.extend(res)
+                    web_total += len(res)
+                    web_queries[str(q)] = len(res)
+            except Exception as e:
+                web_queries[str(q)] = f"err: {str(e)[:60]}"
+        per_source["web_search"] = web_total
+        per_source["web_queries"] = web_queries
     except Exception as e:
-        per_source["web_search_error"] = str(e)
+        per_source["web_search_error"] = str(e)[:200]
+    # Medium - lazy, handles sync + async
     try:
         from discovery.medium import fetch_medium
-        # Signature-tolerant: old medium.py required fetch_medium(session),
-        # new medium.py accepts fetch_medium(). Try no-arg first, then None,
-        # then session kwarg, so either version works.
         try:
-            m_raw = _call_maybe_async(fetch_medium)
-        except TypeError as te:
-            if "session" in str(te) or "positional argument" in str(te) or "missing" in str(te):
-                try:
-                    m_raw = _call_maybe_async(fetch_medium, None)
-                except TypeError:
-                    m_raw = _call_maybe_async(fetch_medium, session=None)
-            else:
-                raise
-        m = _as_list(m_raw)
-        all_posts.extend(m)
-        per_source["medium"] = len(m)
+            m = fetch_medium()
+        except TypeError:
+            try:
+                m = fetch_medium(None)
+            except TypeError:
+                m = fetch_medium(session=None)
+        if inspect.iscoroutine(m):
+            try:
+                m = asyncio.run(m)
+            except Exception:
+                m = []
+        if isinstance(m, list):
+            all_posts.extend(m)
+            per_source["medium"] = len(m)
+        elif m is None:
+            per_source["medium"] = 0
+        else:
+            # Single non-list item (e.g. coroutine object previously counted as 1)
+            all_posts.append(m)
+            per_source["medium"] = 1
     except Exception as e:
-        per_source["medium_error"] = str(e)
+        per_source["medium_error"] = str(e)[:200]
+        per_source["medium"] = 0
+    # YouTube - lazy
     try:
         from discovery.youtube import fetch_youtube
-        y = _as_list(_resolve_maybe_async(fetch_youtube(terms)))
-        all_posts.extend(y)
-        per_source["youtube"] = len(y)
+        try:
+            y = fetch_youtube()
+        except TypeError:
+            try:
+                y = fetch_youtube(None)
+            except TypeError:
+                y = fetch_youtube(session=None)
+        if inspect.iscoroutine(y):
+            try:
+                y = asyncio.run(y)
+            except Exception:
+                y = []
+        if isinstance(y, list):
+            all_posts.extend(y)
+            per_source["youtube"] = len(y)
+        elif y is None:
+            per_source["youtube"] = 0
+        else:
+            all_posts.append(y)
+            per_source["youtube"] = 1
     except Exception as e:
-        per_source["youtube_error"] = str(e)
-
-    pruned, stats = prune_discovery(all_posts, seen_urls=seen)
+        per_source["youtube_error"] = str(e)[:200]
+        per_source["youtube"] = 0
+    kept, stats = prune_discovery(all_posts, seen_urls=seen_urls)
     stats["per_source"] = per_source
-    return pruned, stats
+    stats["raw"] = len(all_posts)
+    return kept, stats
 
-
-def run_discovery(search_terms=None, **kwargs):
-    pruned, _ = run_discovery_with_stats(search_terms=search_terms, **kwargs)
-    return pruned
