@@ -118,8 +118,16 @@ def _brave_search(query, num=5):
         return []
 
 
-def search_web(search_terms):
-    """Returns (posts, per_source_counts)."""
+def search_web(search_terms, max_results=None, *args, **kwargs):
+    """Called per-query from __init__.py as search_web(q, max_per) -> returns list.
+    Called with list as search_web([...]) -> returns (posts, counts) for backward compat."""
+    # Per-query call from __init__.py: single string + max_per
+    if isinstance(search_terms, str):
+        _num = max_results or MAX_RESULTS_PER_SOURCE
+        if SEARCH_PROVIDER == "brave":
+            return _brave_search(search_terms, num=_num)
+        return _serper_search(search_terms, num=_num)
+    # List call: original logic
     queries = build_simple_queries(search_terms)
     posts = []
     counts = {}
