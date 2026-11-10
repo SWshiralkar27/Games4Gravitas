@@ -81,7 +81,7 @@ YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 
 # Grok fallback (separate quota from Gemini)
 GROK_MODEL = "llama-3.3-70b-versatile"
-GROK_API_URL = "https://api.groq.com/openai/v1"
+GROK_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Fallback model suggestion when 3.8 Flash is out
 QUOTA_FALLBACK_MODEL = "gemini-3.1-flash-lite"
