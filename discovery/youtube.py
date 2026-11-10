@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 import requests
 from config import YOUTUBE_API_KEY, SEARCH_TERMS, MAX_RESULTS_PER_SOURCE, DAYS_BACK
-from models import ContentItem, clean_text, truncate_at_boundary
+from models import clean_text, truncate_at_boundary
 
 log = logging.getLogger("digest")
 
@@ -36,7 +36,7 @@ def fetch_youtube(search_terms=None):
                 link = f"https://www.youtube.com/shorts/{vid}" if is_short else f"https://www.youtube.com/watch?v={vid}"
                 desc = clean_text(sn.get("description", ""))
                 title = sn.get("title", "")
-                items.append(ContentItem(platform, title, link, sn.get("channelTitle", ""), sn.get("publishedAt", ""), truncate_at_boundary(desc, 300), full_content=desc, hours_since_post=_hours_since(sn.get("publishedAt", "")), is_question=("?" in title or "?" in desc)))
+                items.append({"title": title, "link": link, "snippet": truncate_at_boundary(desc, 300), "platform": platform, "source": "youtube", "comments": 0})
         except Exception as ex:
             log.error("YouTube term '%s' failed: %s", term, ex)
     return items
