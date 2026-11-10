@@ -1,5 +1,5 @@
 
-# app.py - v4.7.5 - Compact sidebar + copyable discovery error + Discovery diagnostic
+# app.py - v4.8 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -53,7 +53,7 @@ try:
     DISCOVERY_VERSION = getattr(_disc_mod, "__VERSION__", "OLD")
     _has_norm = hasattr(_disc_mod, "_normalize_post")
     # Accept 4.4, 4.5, 4.6, 4.7 - all are good, do NOT call 4.5 OLD
-    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.7.3") or str(DISCOVERY_VERSION).startswith("4.")
+    DISCOVERY_IS_NEW = _has_norm and str(DISCOVERY_VERSION) in ("4.4", "4.5", "4.6", "4.7", "4.8") or str(DISCOVERY_VERSION).startswith("4.")
     if not DISCOVERY_IS_NEW and str(DISCOVERY_VERSION) not in ("OLD",):
         # Version exists but not in list - still treat as OK if _normalize_post exists
         DISCOVERY_IS_NEW = _has_norm
@@ -149,7 +149,7 @@ def _fb_run_discovery(seen_urls=None):
     stats = {"raw": len(all_posts), "invalid_skipped": 0, "seen_filtered": seen_filtered, "deduped": len(deduped), "social": 0, "web_pruned": max(0, len(deduped)-len(kept)), "kept_for_assessment": len(kept), "fallback": True, "per_source": per_source}
     return kept, stats
 
-# ================= SIDEBAR - COMPACT v4.7.5 =================
+# ================= SIDEBAR - COMPACT v4.8 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
 # 1. SEEN - TOP, always visible, compact
@@ -231,7 +231,13 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
             _log(f"Discovery: raw={stats.get('raw','?')} invalid_skipped={stats.get('invalid_skipped',0)} seen_filtered={stats.get('seen_filtered',0)} deduped={stats.get('deduped','?')} social={stats.get('social','?')} web_pruned={stats.get('web_pruned',0)} kept={stats.get('kept_for_assessment', len(pruned))} fallback={stats.get('fallback', False)}")
             st.session_state.discovered = pruned or []
             st.session_state.assessed = []
-            st.success(f"Discovery returned {stats.get('raw','?')} raw posts before dedupe / pruned to {len(pruned)} for assessment. Seen filtered: {stats.get('seen_filtered',0)}. Invalid skipped: {stats.get('invalid_skipped',0)}. Web articles pruned: {stats.get('web_pruned',0)}. Social threads: {stats.get('social','?')}. Per-source: {stats.get('per_source', {})}")
+            st.success(f"Discovery Step 1: {stats.get('raw','?')} raw -> {len(pruned) + stats.get('deep_weeded',0)} kept by title. Step 2 Deep: checked {stats.get('deep_checked',0)}, weeded out {stats.get('deep_weeded',0)} (title matched but body did not fit), kept {len(pruned)} for assessment. Seen filtered: {stats.get('seen_filtered',0)}. Invalid skipped: {stats.get('invalid_skipped',0)}. Web articles pruned: {stats.get('web_pruned',0)}. Social threads: {stats.get('social','?')}. Per-source: {stats.get('per_source', {})}")
+            # Show weeded titles (Step 2)
+            if stats.get('deep_weeded',0):
+                with st.expander(f"Deep Step 2 weeded out {stats.get('deep_weeded',0)} (title matched, body did not fit) - tap to see"):
+                    for w in stats.get('deep_weeded_posts',[]):
+                        st.write(f"- {w.get('title','')} | {w.get('reason','')}")
+                        st.caption(w.get('link',''))
         except Exception as e:
             st.warning(f"Real discovery failed ({e}) - using fallback discovery.")
             pruned, stats = _fb_run_discovery(seen_urls=seen_urls)
@@ -289,7 +295,7 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
         for p in posts:
             if id(p) in gemini_ids and gclient is not None and not quota_hit:
                 try:
-                    data = gclient.generate(f"Assess this post for Leadership+AI digest. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"book theme or other\",\"sensitive\":true/false,\"is_breaking\":true/false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:1200]} Platform: {p.get('platform','')}")
+                    data = gclient.generate(f"Assess this post for Leadership+AI digest. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"book theme or other\",\"sensitive\":true/false,\"is_breaking\":true/false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:800]} Deep body (first 2500 chars): {p.get('_deep_text','')[:2500]} Platform: {p.get('platform','')}")
                     try:
                         _t = re.sub(r"^```(?:json)?\s*", "", data.strip()); _t = re.sub(r"\s*```$", "", _t)
                         d = json.loads(_t)
@@ -315,13 +321,13 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
                     quota_hit = True; st.session_state.quota_hit = True; gclient = None
                 except Exception as e:
                     st.warning(f"Gemini analyse failed for {str(p.get('title',''))[:60]}: {e}")
-            # --- GROK FALLBACK FOR ASSESS (v4.7.5) ---
+            # --- GROK FALLBACK FOR ASSESS (v4.8) ---
             # If Gemini did not assess this post (quota out / 503 / no budget), try Grok before heuristic.
             # Grok has its own quota, so it works when Gemini is out.
             _grok_done = False
             if grok_client_for_assess is not None and (quota_hit or id(p) not in gemini_ids or gclient is None):
                 try:
-                    _gdata = grok_client_for_assess.generate(f"Assess this post for Leadership+AI digest. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"book theme or other\",\"sensitive\":true/false,\"is_breaking\":true/false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:1200]} Platform: {p.get('platform','')}")
+                    _gdata = grok_client_for_assess.generate(f"Assess this post for Leadership+AI digest. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"book theme or other\",\"sensitive\":true/false,\"is_breaking\":true/false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:800]} Deep body (first 2500 chars): {p.get('_deep_text','')[:2500]} Platform: {p.get('platform','')}")
                     import json as _json2
                     _t2 = re.sub(r"^```(?:json)?\s*", "", _gdata.strip()); _t2 = re.sub(r"\s*```$", "", _t2)
                     try:
@@ -385,6 +391,8 @@ else:
             st.write(f"**Platform:** {post.get('platform')}")
             st.write(f"**Why:** {post.get('reason')}")
             st.write(f"**Snippet:** {str(post.get('snippet',''))[:400]}")
+            if post.get("_deep_reason"):
+                st.caption(f"Deep check: {post.get('_deep_reason')} | Source: {post.get('_deep_source')} | Body length: {post.get('_deep_len',0)} chars")
             if post.get("decision") == "D_SENSITIVE":
                 st.warning("Sensitive - drafting blocked.")
             else:
@@ -393,7 +401,7 @@ else:
                     usage2 = get_usage(GEMINI_MODEL)
                     if usage2["remaining"] <= 0:
                         st.warning(f"Gemini quota out ({usage2['used']}/{usage2['limit']} used). Trying Grok directly as fallback generator (separate quota).")
-                        # --- GROK FALLBACK FOR DRAFT (v4.7.5) ---
+                        # --- GROK FALLBACK FOR DRAFT (v4.8) ---
                         draft_a = None
                         try:
                             if GrokClient is not None:
@@ -424,7 +432,7 @@ else:
                             else: raise GeminiInitError("GeminiClient not available")
                         except GeminiQuotaExceeded as qe:
                             st.warning(f"{qe} Trying Grok fallback.")
-                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.7.5) ---
+                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.8) ---
                             try:
                                 if GrokClient is not None:
                                     _gdk2 = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
