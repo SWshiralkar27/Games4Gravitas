@@ -562,9 +562,12 @@ else:
 if not st.session_state.assessed:
     st.info("Run Discovery, then Assess posts.")
 else:
-    view = st.radio("Show", ["Recommended only (Promote + Engage)", "All", "Skipped / Wait only"], horizontal=True, key="view_radio_v472")
+    view = st.radio("Show", ["Promote only", "Recommended only (Promote + Engage)", "All", "Skipped / Wait only"], horizontal=True, key="view_radio_v472")
     filtered = st.session_state.assessed
-    if view == "Recommended only (Promote + Engage)":
+    if view == "Promote only":
+        filtered = [x for x in filtered if x.get("decision") == "A_PROMOTE"]
+    elif view == "Recommended only (Promote + Engage)":
+        filtered = [x for x in filtered if x.get("decision") in ("A_PROMOTE","B_ENGAGE")]
         filtered = [x for x in filtered if x.get("decision") in ("A_PROMOTE","B_ENGAGE")]
     elif view == "Skipped / Wait only":
         filtered = [x for x in filtered if x.get("decision") in ("D_SKIP","C_WAIT","D_SENSITIVE")]
