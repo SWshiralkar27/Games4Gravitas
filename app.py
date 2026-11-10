@@ -1,5 +1,5 @@
 
-# app.py - v4.7.4 - Compact sidebar + copyable discovery error + Discovery diagnostic
+# app.py - v4.7.5 - Compact sidebar + copyable discovery error + Discovery diagnostic
 # Root: app.py
 # CHANGELOG v4.7.1 vs v4.7:
 # - Seen_posts.txt uploader moved back to TOP of sidebar (was pushed below quota panel, looked gone)
@@ -33,6 +33,16 @@ except Exception as e:
     _GEMINI_IMPORT_ERR = e
 else:
     _GEMINI_IMPORT_ERR = None
+
+# --- Grok fallback (separate quota) ---
+try:
+    from grok_client import GrokClient, GrokQuotaExceeded, GrokTransientError
+    from config import GROK_MODEL
+except Exception:
+    GrokClient = None
+    class GrokQuotaExceeded(Exception): pass
+    class GrokTransientError(Exception): pass
+    GROK_MODEL = "grok-3-mini"
 
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
@@ -139,7 +149,7 @@ def _fb_run_discovery(seen_urls=None):
     stats = {"raw": len(all_posts), "invalid_skipped": 0, "seen_filtered": seen_filtered, "deduped": len(deduped), "social": 0, "web_pruned": max(0, len(deduped)-len(kept)), "kept_for_assessment": len(kept), "fallback": True, "per_source": per_source}
     return kept, stats
 
-# ================= SIDEBAR - COMPACT v4.7.4 =================
+# ================= SIDEBAR - COMPACT v4.7.5 =================
 st.sidebar.title("Leadership AI Daily Digest")
 
 # 1. SEEN - TOP, always visible, compact
@@ -267,6 +277,15 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
             except Exception as e:
                 st.warning(f"Gemini init failed, using heuristic: {e}")
                 gclient = None
+        # Grok fallback client - ready even if Gemini is out (separate quota)
+        grok_client_for_assess = None
+        if GrokClient is not None:
+            try:
+                _gc = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
+                if _gc.is_ready():
+                    grok_client_for_assess = _gc
+            except Exception:
+                grok_client_for_assess = None
         for p in posts:
             if id(p) in gemini_ids and gclient is not None and not quota_hit:
                 try:
@@ -296,6 +315,37 @@ if st.button("Assess posts (Gemini: max 12, rest heuristic)", key="assess_btn_v4
                     quota_hit = True; st.session_state.quota_hit = True; gclient = None
                 except Exception as e:
                     st.warning(f"Gemini analyse failed for {str(p.get('title',''))[:60]}: {e}")
+            # --- GROK FALLBACK FOR ASSESS (v4.7.5) ---
+            # If Gemini did not assess this post (quota out / 503 / no budget), try Grok before heuristic.
+            # Grok has its own quota, so it works when Gemini is out.
+            _grok_done = False
+            if grok_client_for_assess is not None and (quota_hit or id(p) not in gemini_ids or gclient is None):
+                try:
+                    _gdata = grok_client_for_assess.generate(f"Assess this post for Leadership+AI digest. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"book theme or other\",\"sensitive\":true/false,\"is_breaking\":true/false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:1200]} Platform: {p.get('platform','')}")
+                    import json as _json2
+                    _t2 = re.sub(r"^```(?:json)?\s*", "", _gdata.strip()); _t2 = re.sub(r"\s*```$", "", _t2)
+                    try:
+                        _d2 = _json2.loads(_t2)
+                    except Exception:
+                        _m2 = re.search(r"\{.*\}", _gdata, re.S)
+                        _d2 = _json2.loads(_m2.group(0)) if _m2 else {}
+                    _rel = int(_d2.get("relevance", 50)); _conv = int(_d2.get("conversation", 50)); _rec = int(_d2.get("recency", 70))
+                    _promo = round(_rel*0.30 + _conv*0.35 + _rec*0.15 + 20)
+                    _opp = round((_rel*0.40 + _conv*0.35 + _rec*0.25)/10, 1)
+                    _theme = _d2.get("theme", "other") or "other"
+                    if _d2.get("sensitive"): _dec = "D_SENSITIVE"
+                    elif _d2.get("is_breaking"): _dec = "C_WAIT"
+                    elif _promo >= 80: _dec = "A_PROMOTE"
+                    elif _promo >= 60: _dec = "B_ENGAGE"
+                    else: _dec = "D_SKIP"
+                    assessed.append({**p, "decision": _dec, "promo": _promo, "opp": _opp, "theme": _theme, "reason": f"Grok Assess (Gemini out) - {str(_d2.get('reason','Grok'))[:150]}"})
+                    _grok_done = True
+                    continue
+                except Exception as _ge:
+                    # Grok failed too - fall through to heuristic, do not crash Assess
+                    pass
+            if _grok_done:
+                continue
             try:
                 h = heuristic_assess(p)
             except Exception:
@@ -342,8 +392,26 @@ else:
                 if st.button("Generate draft anyway for this post", key=key):
                     usage2 = get_usage(GEMINI_MODEL)
                     if usage2["remaining"] <= 0:
-                        st.warning(f"Quota out ({usage2['used']}/{usage2['limit']} used). Using template draft only - 0 Gemini calls.")
-                        draft_a = format_draft(template_draft(post))
+                        st.warning(f"Gemini quota out ({usage2['used']}/{usage2['limit']} used). Trying Grok directly as fallback generator (separate quota).")
+                        # --- GROK FALLBACK FOR DRAFT (v4.7.5) ---
+                        draft_a = None
+                        try:
+                            if GrokClient is not None:
+                                _gdk = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
+                                if _gdk.is_ready():
+                                    _gd = _gdk.generate(f"Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]}")
+                                    if _gd:
+                                        draft_a = format_draft(_gd)
+                                        st.info("Option A - Grok fallback (Gemini quota out, single-engine - no dual review)")
+                                else:
+                                    raise Exception(_gdk.init_error)
+                            else:
+                                raise Exception("GrokClient not available")
+                        except Exception as _gde:
+                            st.warning(f"Grok fallback also failed ({_gde}) - using template draft.")
+                            draft_a = None
+                        if not draft_a:
+                            draft_a = format_draft(template_draft(post))
                     else:
                         st.info(f"Draft needs 1 Gemini call. You have {usage2['remaining']} left.")
                         draft_a = None
@@ -355,7 +423,21 @@ else:
                                 else: raise GeminiInitError(g.init_error)
                             else: raise GeminiInitError("GeminiClient not available")
                         except GeminiQuotaExceeded as qe:
-                            st.warning(f"{qe} Using template draft."); draft_a = template_draft(post)
+                            st.warning(f"{qe} Trying Grok fallback.")
+                            # --- GROK FALLBACK AFTER GEMINI FAIL (v4.7.5) ---
+                            try:
+                                if GrokClient is not None:
+                                    _gdk2 = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
+                                    if _gdk2.is_ready():
+                                        _gd2 = _gdk2.generate(f"Write ONE comment in CEA structure: Compliment (1 sentence) - Expand (1-2 sentences) - Ask (1 open question). Max 70 words. Plain text. Post: {post.get('title','')} {post.get('snippet','')[:1200]}")
+                                        draft_a = _gd2 if _gd2 else template_draft(post)
+                                        st.info("Option A - Grok fallback (Gemini quota out)")
+                                    else:
+                                        draft_a = template_draft(post)
+                                else:
+                                    draft_a = template_draft(post)
+                            except Exception:
+                                draft_a = template_draft(post)
                         except Exception as e:
                             st.warning(f"Gemini failed ({e}) - using template draft."); draft_a = template_draft(post)
                         if not draft_a: draft_a = template_draft(post)
@@ -383,3 +465,4 @@ with st.expander("Debug"):
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
+
