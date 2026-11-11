@@ -518,7 +518,9 @@ if st.session_state.assessed:
                 _a = post.get("comment", "")
                 if _a:
                     st.markdown(_a)
-                    st.text_area("Copy Option A", value=_a, key=f"copy_a_{idx}_v493", height=150)
+                    st.caption("Copy below — click the copy icon top-right of the code box:")
+                    st.code(_a, language="markdown")
+                    st.text_area("Edit / Copy Option A", value=_a, key=f"copy_a_{idx}_v493", height=150)
                 else:
                     st.write("No draft generated - check logs.")
                 if post.get("grok_comment"):
