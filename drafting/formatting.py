@@ -83,9 +83,9 @@ def _break_after_full_stop(text):
 def word_range(platform: str) -> tuple[int, int]:
     return (70, 90)
 
-def book_mention_form(variant: int, plain: bool) -> str:
-    if plain:
-        return BOOK_NAME_YOUTUBE
+def book_mention_form(platform: str) -> str:
+    # 2026-11-11: Fix - bold only, no Amazon link. Reason: placeholder link leaked into Copy box.
+    return "**Games for Gravitas**"
     if variant == 0:
     # 2026-11-11: Fix - bold only, no 【entity-Amazon¦canonical_name=Amazon】 link. Reason: placeholder link leaked into Copy box as raw markdown.
     return f"**{BOOK_TITLE}**"
