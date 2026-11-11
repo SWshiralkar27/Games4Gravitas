@@ -43,6 +43,7 @@ def build_fallback_comment(item, plain: bool) -> str:
     return templates[idx].format(t=topic, b=book)
 
 def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
+    _decision = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", None)
     if item.decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE):
         return
     item.draft_variant = variant
