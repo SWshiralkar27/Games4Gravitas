@@ -513,7 +513,8 @@ if st.session_state.assessed:
                 # Reason: old st.rerun() hid the draft, button looked like it did nothing.
                 # 2026-11-11: Fix - show formatted drafts + Copy boxes for both engines, + fallback label.
                 # Reason: old code used st.write only, no copy, no formatted display.
-                st.subheader("Option A - Gemini draft (formatted)")
+                _is_fallback = "This raises a real question" in (post.get("comment", "") or "")
+                st.subheader("Option A - Fallback from grounding (formatted)" if _is_fallback else "Option A - Gemini draft (formatted)")
                 _a = post.get("comment", "")
                 if _a:
                     st.markdown(_a)
