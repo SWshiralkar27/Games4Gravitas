@@ -43,7 +43,11 @@ def build_fallback_comment(item, plain: bool) -> str:
     idx = int(hashlib.md5(item_link.encode() if item_link else b"fallback").hexdigest(), 16) % len(templates)
     return templates[idx].format(t=topic, b=book)
 
-def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
+def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_client=None) -> None:
+    # 2026-11-11: Stage 5 - Grok -> Groq rename. Accept both param names, prefer groq. Dual-write groq_* + grok_* for old app.py until Stage 5B.
+    if groq_client is None:
+        groq_client = grok_client
+    grok_client = groq_client
     # 2026-11-11: Fix - decision in assessed dicts is string "A_PROMOTE"/"B_ENGAGE", not Decision enum.
     # Reason: old check `if _decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE)` was always True for strings,
     # so function returned early with no draft and button appeared to do nothing.
@@ -60,15 +64,23 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     if isinstance(item, dict):
         item["draft_variant"] = variant
         item["grok_available"] = False
+        item["groq_available"] = False
         item["grok_comment"] = ""
+        item["groq_comment"] = ""
         item["grok_note"] = ""
+        item["groq_note"] = ""
         item["grok_verdict"] = ""
+        item["groq_verdict"] = ""
     else:
         item.draft_variant = variant
         item.grok_available = False
+        item.groq_available = False
         item.grok_comment = ""
+        item.groq_comment = ""
         item.grok_note = ""
+        item.groq_note = ""
         item.grok_verdict = ""
+        item.groq_verdict = ""
         
     prompt, _ = build_draft_prompt(item, variant)
     raw = None
@@ -174,37 +186,47 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
             item.draft_archetype = archetype_val
             item.alternatives = alternatives_val
 
-        if grok_client is not None:
+        if groq_client is not None:
             try:
-                reviewed = grok_client.review_draft(item, comment_val, archetype_val)
+                reviewed = groq_client.review_draft(item, comment_val, archetype_val)
                 if reviewed:
                     cand = reviewed.get("reviewed_draft", "").strip()
                     if cand:
                         cand = _sanitize_generic_opener(cand)
-                        # 2026-11-11: Fix - same string-vs-enum fix as above, for Grok review path.
+                        # 2026-11-11: Fix - same string-vs-enum fix as above, for Groq review path.
                         if _decision == "A_PROMOTE":
                             plain = item_platform in PLAIN_TEXT_PLATFORMS
                             form = book_mention_form(variant, plain)
                             cand = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", cand, count=1)
                             cand = cand.replace("BOOKPLACEHOLDER", form)
                         
-                        grok_comment_val = format_for_platform(cand, item_platform)
-                        grok_note_val = reviewed.get("what_changed", "")
-                        grok_verdict_val = reviewed.get("verdict", "")
+                        groq_comment_val = format_for_platform(cand, item_platform)
+                        groq_note_val = reviewed.get("what_changed", "")
+                        groq_verdict_val = reviewed.get("verdict", "")
                         
                         if isinstance(item, dict):
-                            item["grok_comment"] = grok_comment_val
-                            item["grok_note"] = grok_note_val
-                            item["grok_verdict"] = grok_verdict_val
+                            item["groq_comment"] = groq_comment_val
+                            item["grok_comment"] = groq_comment_val
+                            item["groq_note"] = groq_note_val
+                            item["grok_note"] = groq_note_val
+                            item["groq_verdict"] = groq_verdict_val
+                            item["grok_verdict"] = groq_verdict_val
+                            item["groq_available"] = True
                             item["grok_available"] = True
                         else:
-                            item.grok_comment = grok_comment_val
-                            item.grok_note = grok_note_val
-                            item.grok_verdict = grok_verdict_val
+                            item.groq_comment = groq_comment_val
+                            item.grok_comment = groq_comment_val
+                            item.groq_note = groq_note_val
+                            item.grok_note = groq_note_val
+                            item.groq_verdict = groq_verdict_val
+                            item.grok_verdict = groq_verdict_val
+                            item.groq_available = True
                             item.grok_available = True
             except Exception as exc:
-                log.warning("Grok review skipped: %s", exc)
+                log.warning("Groq review skipped: %s", exc)
                 if isinstance(item, dict):
+                    item["groq_available"] = False
                     item["grok_available"] = False
                 else:
+                    item.groq_available = False
                     item.grok_available = False
