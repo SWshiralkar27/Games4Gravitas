@@ -59,8 +59,10 @@ except Exception as e:
 
 try:
     from drafting.formatting import format_draft
+    from drafting.generator import generate_drafts
 except Exception:
     def format_draft(x): return x or ""
+    def generate_drafts(*args, **kwargs): pass
 try:
     from scoring.selection import heuristic_assess, select_for_gemini, template_draft
 except Exception:
