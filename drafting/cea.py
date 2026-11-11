@@ -27,15 +27,22 @@ def _load_grounding_text(filename: str) -> str:
 def build_draft_prompt(item, variant: int) -> tuple[str, str]:
     _platform = item.get("platform") if isinstance(item, dict) else getattr(item, "platform", "")
     plain = _platform in PLAIN_TEXT_PLATFORMS
-    lo, hi = word_range(item.platform)
-    context = item.content_for_analysis or item.snippet
+    lo, hi = word_range(_platform)
+    if isinstance(item, dict):
+        context = item.get("content_for_analysis") or item.get("snippet") or item.get("title") or ""
+    else:
+        context = getattr(item, "content_for_analysis", "") or getattr(item, "snippet", "") or ""
     
     core_book = _load_grounding_text("00_book_core.txt")
     voice_rules = _load_grounding_text("04_voice.txt")
 
     themes_str = "\n".join(f"{i}. {t['name']} - {t['detail']}" for i, t in enumerate(BOOK_THEMES, 1))
 
-    if item.decision.value == "A_PROMOTE":
+    _decision = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", "")
+    _decision_val = getattr(_decision, "value", _decision) if not isinstance(_decision, str) else _decision
+    _decision_reason = item.get("decision_reason", "") if isinstance(item, dict) else getattr(item, "decision_reason", "")
+    _title = item.get("title", "") if isinstance(item, dict) else getattr(item, "title", "")
+    if _decision_val == "A_PROMOTE":
         form = book_mention_form(variant, plain)
         book_instruction = f'Mention the book exactly once as {form}. Do NOT add any other book title, author name, or URL. Variant {variant}: 0=linked, 1=plain title curiosity, 2=curiosity phrase without link.'
     else:
@@ -48,8 +55,8 @@ def build_draft_prompt(item, variant: int) -> tuple[str, str]:
 {voice_rules}
 
 Write 3 distinct comments for this post, each in a DIFFERENT archetype and connecting to a distinct core book theme.
-Decision: {item.decision.value} ({item.decision_reason})
-POST: {item.title} | {context}
+Decision: {_decision_val} ({_decision_reason})
+POST: {_title} | {context}
 
 BOOK THEMES (choose one per draft, the single most relevant to THIS post; never stack themes):
 {themes_str}
