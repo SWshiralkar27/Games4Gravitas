@@ -107,6 +107,8 @@ def format_for_platform(draft: str, platform: str) -> str:
         text = re.sub(r"https?://\S+", "", text)
         text = text.replace("**", "").replace("*", "").replace("_", "")
         text = re.sub(r"\s{2,}", " ", text).strip()
+        # 2026-11-11: Fix - plain platforms still get line break after every full stop.
+        text = _break_after_full_stop(text)
         return text
 
     # Rich text platforms
