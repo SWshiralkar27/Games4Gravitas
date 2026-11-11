@@ -1,4 +1,4 @@
-# config.py - v4.9.3.3 - Grok fallback
+# config.py - v4.9.3.4 - Pillar B & C Focus Update
 # Root: config.py
 
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -12,16 +12,24 @@ YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 BRAVE_API_KEY = _os.getenv("BRAVE_API_KEY", "")
 DAYS_BACK = 7
 MAX_CONTEXT_CHARS = 2000
-# Search terms - same as v4.6, do not use parenthesised OR / Serper queries
+
+# Search terms - Updated to focus on Pillars B (Corporate L&D & Training Methods) & C (Human-AI Collaboration & Teaming)
 SEARCH_TERMS = [
-    "corporate upskilling AI",
-    "AI upskilling program",
-    "L&D AI training",
-    "reskilling workforce AI",
+    # Pillar B: Corporate L&D & Training Methods
+    "corporate training ROI",
+    "why corporate training fails",
+    "experiential learning corporate",
+    "L&D strategy transformation",
+    "employee training effectiveness",
+    # Pillar C: Human-AI Collaboration & Teaming
+    "human ai collaboration workplace",
+    "future of work human skills",
+    "preserving human judgment in AI",
+    "blended workforce strategy",
+    # Platform-specific targeted searches
     "corporate upskilling AI site:linkedin.com",
-    "AI upskilling program site:x.com",
-    "L&D AI training site:threads.net",
-    "reskilling workforce AI site:linkedin.com",
+    "L&D AI training site:x.com",
+    "experiential learning corporate site:threads.net",
 ]
 
 MAX_POSTS_TO_ASSESS = 30
@@ -64,19 +72,13 @@ MODEL_QUOTAS = {
 }
 
 # How many Gemini calls each action needs
-QUOTA_ASSESS_NEEDS = 12   # Assess: max 12 posts to Gemini, rest heuristic
-QUOTA_DRAFT_NEEDS = 1     # Generate draft: 1 call
-QUOTA_TEST_NEEDS = 1      # Test Gemini now: 1 call
+QUOTA_ASSESS_NEEDS = 12    # Assess: max 12 posts to Gemini, rest heuristic
+QUOTA_DRAFT_NEEDS = 1      # Generate draft: 1 call
+QUOTA_TEST_NEEDS = 1       # Test Gemini now: 1 call
 
-# --- Discovery providers (v4.9.3.3 FIX: Serper auto-detect) ---
-# discovery/web_search.py does `from config import SEARCH_PROVIDER` and discovery/youtube.py does `from config import YOUTUBE_API_KEY`.
-# If these names are missing, web_search and youtube error out and Discovery falls back to Medium only.
-# SERPER was very effective for you: if SERPER_API_KEY is in Secrets, use Serper; otherwise fall back to DuckDuckGo (free, no key).
-# Do NOT use parenthesised OR in Serper queries - web_search.py already sends plain queries.
-import os as _os
+# --- Discovery providers ---
 SERPER_API_KEY = _os.getenv("SERPER_API_KEY", "")
 SEARCH_PROVIDER = "serper" if SERPER_API_KEY else "duckduckgo"
-# YOUTUBE_API_KEY: read from Streamlit Secrets / env. Empty = youtube.py uses RSS / no-key fallback, still returns results.
 YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 
 # Grok fallback (separate quota from Gemini)
