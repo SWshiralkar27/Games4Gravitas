@@ -1,4 +1,4 @@
-"""Draft generation — robust handling of JSON or plain text responses with fallback integration."""
+"""Draft generation — robust handling of JSON or plain text responses with thematic enforcement and fallback integration."""
 from __future__ import annotations
 import re, logging, hashlib, json
 from models import clean_text, Decision
@@ -8,6 +8,28 @@ from drafting.formatting import format_for_platform, book_mention_form
 from drafting.validation import is_valid_draft
 
 log = logging.getLogger("digest")
+
+BANNED_OPENERS = [
+    "great post", "great question", "thanks for sharing", "thank you for sharing",
+    "nice post", "love this", "great comprehensive guide", "great insights",
+    "excellent article", "fascinating read"
+]
+
+def _sanitize_generic_opener(text: str) -> str:
+    """Removes generic fluff openers so comments sound authentic and peer-to-peer."""
+    if not text:
+        return ""
+    cleaned = text.strip()
+    lower_c = cleaned.lower()
+    for opener in BANNED_OPENERS:
+        if lower_c.startswith(opener):
+            # Cut off the banned opener phrase and any immediate punctuation/whitespace following it
+            cleaned = cleaned[len(opener):].lstrip(" ,.!:-")
+            # Capitalize the new starting letter if necessary
+            if cleaned:
+                cleaned = cleaned[0].upper() + cleaned[1:]
+            break
+    return cleaned
 
 def build_fallback_comment(item, plain: bool) -> str:
     book = BOOK_NAME_YOUTUBE if plain else f"[{BOOK_TITLE}]({BOOK_LINK})"
@@ -63,10 +85,11 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
         for idx, d in enumerate(drafts):
             if not d:
                 continue
+            d = _sanitize_generic_opener(d)
             if item.decision == Decision.A_PROMOTE:
                 plain = item.platform in PLAIN_TEXT_PLATFORMS
                 form = book_mention_form(variant, plain)
-                # Ensure book mention is correctly inserted
+                # Ensure book mention is correctly inserted if missing
                 if BOOK_TITLE.lower() not in d.lower():
                     d = f"{d} (Explore more in **{BOOK_TITLE}**)."
                 d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
@@ -77,6 +100,7 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     # If JSON parsing wasn't used but we have a valid text response from Gemini
     elif fallback_raw_text:
         d = clean_text(fallback_raw_text)
+        d = _sanitize_generic_opener(d)
         if item.decision == Decision.A_PROMOTE:
             plain = item.platform in PLAIN_TEXT_PLATFORMS
             form = book_mention_form(variant, plain)
@@ -91,6 +115,7 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     if not kept:
         plain = item.platform in PLAIN_TEXT_PLATFORMS
         fallback_text = build_fallback_comment(item, plain)
+        fallback_text = _sanitize_generic_opener(fallback_text)
         fallback_text = format_for_platform(fallback_text, item.platform)
         kept.append((fallback_text, "Insight Add"))
 
@@ -105,6 +130,7 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
                 if reviewed:
                     cand = reviewed.get("reviewed_draft", "").strip()
                     if cand:
+                        cand = _sanitize_generic_opener(cand)
                         if item.decision == Decision.A_PROMOTE:
                             plain = item.platform in PLAIN_TEXT_PLATFORMS
                             form = book_mention_form(variant, plain)
