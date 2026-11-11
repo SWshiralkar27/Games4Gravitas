@@ -4,7 +4,7 @@
 BOOK_TITLE = "Games for Gravitas"
 BOOK_LINK = "https://www.amazon.com/Games-Gravitas-Playbook-Advantage-Intelligence/dp/B0FZBP13F8"  # Replace with your actual book URL or landing page
 BOOK_NAME_YOUTUBE = "Games for Gravitas"
-PLAIN_TEXT_PLATFORMS = ["X", "LinkedIn", "YouTube", "Reddit", "Web - Blog"]
+PLAIN_TEXT_PLATFORMS = ["facebook", "YouTube", "Reddit", "Web - Blog"]
 # --- CEA Prompting & Idea Phrases ---
 IDEA_PHRASES = [
     "corporate training methods",
