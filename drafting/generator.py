@@ -1,6 +1,6 @@
 """Draft generation — robust handling of JSON or plain text responses with thematic enforcement and fallback integration."""
 from __future__ import annotations
-import re, logging, hashlib, json
+import re, logging, hashlib, json, os
 from models import clean_text, Decision
 from config import BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, PLAIN_TEXT_PLATFORMS
 from drafting.cea import build_draft_prompt
@@ -44,8 +44,17 @@ def build_fallback_comment(item, plain: bool) -> str:
     return templates[idx].format(t=topic, b=book)
 
 def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
-    _decision = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", None)
-    if _decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE):
+    # 2026-11-11: Fix - decision in assessed dicts is string "A_PROMOTE"/"B_ENGAGE", not Decision enum.
+    # Reason: old check `if _decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE)` was always True for strings,
+    # so function returned early with no draft and button appeared to do nothing.
+    _decision_raw = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", None)
+    # Normalize both string and enum to plain string "A_PROMOTE" / "B_ENGAGE" for all checks below.
+    if hasattr(_decision_raw, "value"):
+        _decision_str = str(_decision_raw.value)
+    else:
+        _decision_str = str(_decision_raw or "")
+    _decision = _decision_str
+    if _decision not in ("A_PROMOTE", "B_ENGAGE"):
         return
     
     if isinstance(item, dict):
@@ -63,7 +72,31 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
         
     prompt, _ = build_draft_prompt(item, variant)
     raw = None
+    # 2026-11-11: Fix - client was None when app.py passed st.session_state.get("gemini_client") which is never set.
+    # Reason: caused "'NoneType' object has no attribute 'generate'" in logs, 10x fallback to template.
+    # Fix: create GeminiClient from GEMINI_API_KEY only if client is None.
+    if client is None:
+        try:
+            from gemini_client import GeminiClient as _GC
+            # 2026-11-11: Fix - use GEMINI_API_KEY only, not GOOGLE_API_KEY.
+            # Reason: google-genai picks GOOGLE_API_KEY when both are set ("Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY"),
+            # which is the wrong key and breaks auth. Explicitly pass GEMINI_API_KEY.
+            _api_key = (os.getenv("GEMINI_API_KEY", "") or "").strip()
+            if _api_key:
+                client = _GC(api_key=_api_key)
+            else:
+                log.warning("Gemini client is None and no GEMINI_API_KEY in Secrets. Using fallback template.")
+                client = None
+        except Exception as _ce:
+            log.warning("Gemini client create failed: %s. Using fallback template.", _ce)
+            client = None
     try:
+        if client is None:
+            raise Exception("Gemini client is None (not ready)")
+        # 2026-11-11: Fix - check is_ready() before generate.
+        # Reason: if GeminiClient init failed, _client is None and generate would raise confusing AttributeError.
+        if hasattr(client, "is_ready") and not client.is_ready():
+            raise Exception(f"Gemini client not ready: {getattr(client, 'init_error', 'unknown')}")
         raw = client.generate(prompt, 2600)
     except Exception as ex:
         log.warning("Gemini generation failed: %s. Using fallback template.", ex)
@@ -95,7 +128,9 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
             if not d:
                 continue
             d = _sanitize_generic_opener(d)
-            if _decision == Decision.A_PROMOTE:
+            # 2026-11-11: Fix - use normalized _decision string, not Decision enum.
+            # Reason: old `if _decision == Decision.A_PROMOTE` was False for string "A_PROMOTE", so book mention logic never ran.
+            if _decision == "A_PROMOTE":
                 plain = item_platform in PLAIN_TEXT_PLATFORMS
                 form = book_mention_form(variant, plain)
                 if BOOK_TITLE.lower() not in d.lower():
@@ -108,7 +143,8 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     elif fallback_raw_text:
         d = clean_text(fallback_raw_text)
         d = _sanitize_generic_opener(d)
-        if _decision == Decision.A_PROMOTE:
+        # 2026-11-11: Fix - same string-vs-enum fix as above, for fallback path.
+        if _decision == "A_PROMOTE":
             plain = item_platform in PLAIN_TEXT_PLATFORMS
             form = book_mention_form(variant, plain)
             if BOOK_TITLE.lower() not in d.lower():
@@ -145,7 +181,8 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
                     cand = reviewed.get("reviewed_draft", "").strip()
                     if cand:
                         cand = _sanitize_generic_opener(cand)
-                        if _decision == Decision.A_PROMOTE:
+                        # 2026-11-11: Fix - same string-vs-enum fix as above, for Grok review path.
+                        if _decision == "A_PROMOTE":
                             plain = item_platform in PLAIN_TEXT_PLATFORMS
                             form = book_mention_form(variant, plain)
                             cand = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", cand, count=1)
