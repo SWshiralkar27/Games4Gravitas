@@ -12,6 +12,9 @@ IDEA_PHRASES = [
     "interactive learning models",
     "serious games in L&D"
 ]
+# --- Formatting & Keyword Constants ---
+ABBREVIATIONS = ["L&D", "AI", "HR", "ROI", "CEO", "CTO"]
+ITALIC_KEYWORDS = ["Games for Gravitas", "serious games", "human-ai teaming"]
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # Serper auto-detect - if SERPER_API_KEY is in Secrets, use Serper; else DuckDuckGo
