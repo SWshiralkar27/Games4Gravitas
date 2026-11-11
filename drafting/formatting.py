@@ -87,7 +87,8 @@ def book_mention_form(variant: int, plain: bool) -> str:
     if plain:
         return BOOK_NAME_YOUTUBE
     if variant == 0:
-        return f"[{BOOK_TITLE}]({BOOK_LINK})"
+    # 2026-11-11: Fix - bold only, no 【entity-Amazon¦canonical_name=Amazon】 link. Reason: placeholder link leaked into Copy box as raw markdown.
+    return f"**{BOOK_TITLE}**"
     elif variant == 1:
         return f"*{BOOK_TITLE}*"
     else:
