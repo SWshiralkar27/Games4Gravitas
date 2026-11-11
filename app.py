@@ -1,4 +1,4 @@
-# app.py - v4.9.3.3 - Compact sidebar + copyable discovery error + Discovery diagnostic
+# app.py - v4.9.3.5 - Compact sidebar + copyable discovery error + Discovery diagnostic + Stage 5C Groq only
 # Root: app.py
 import os, json, re
 
@@ -27,16 +27,16 @@ except Exception as e:
 else:
     _GEMINI_IMPORT_ERR = None
 
-# --- Grok fallback (separate quota) ---
+# --- Groq fallback (separate quota) ---
+# 2026-11-11: Stage 5C - Groq only. Reason: groq_client.py tested in Stage 3-5B, old grok_client.py will be deleted.
 try:
-    from grok_client import GrokClient, GrokQuotaExceeded, GrokTransientError
-    from config import GROK_MODEL
+    from groq_client import GroqClient, GroqQuotaExceeded, GroqTransientError
+    from config import GROQ_MODEL
 except Exception:
-    GrokClient = None
-    class GrokQuotaExceeded(Exception): pass
-    class GrokTransientError(Exception): pass
-    GROK_MODEL = "llama-3.3-70b-versatile"
-
+    GroqClient = None
+    class GroqQuotaExceeded(Exception): pass
+    class GroqTransientError(Exception): pass
+    GROQ_MODEL = "openai/gpt-oss-20b"
 
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
@@ -150,7 +150,6 @@ def _fb_run_discovery(seen_urls=None, search_terms=None):
     kept = deduped[:23]
     stats = {"raw": len(all_posts), "invalid_skipped": 0, "seen_filtered": seen_filtered, "deduped": len(deduped), "social": 0, "web_pruned": max(0, len(deduped)-len(kept)), "kept_for_assessment": len(kept), "fallback": True, "per_source": per_source}
     return kept, stats
-
 
 def _load_grounding():
     try:
@@ -410,14 +409,15 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                 if not gclient.is_ready(): gclient = None
             except Exception:
                 gclient = None
-        
-        grok_client_for_assess = None
-        if GrokClient is not None:
+        # 2026-11-11: Stage 5C - Groq client for Assess, outside Gemini try. Fix: old code had Groq init inside Gemini except with wrong indent + grok_ vs groq_ mismatch.
+        groq_client_for_assess = None
+        if GroqClient is not None:
             try:
-                _gc = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
-                if _gc.is_ready(): grok_client_for_assess = _gc
+                _gc = GroqClient(api_key=os.getenv("GROQ_API_KEY", "") or os.getenv("GROK_API_KEY", ""), model=GROQ_MODEL)
+                if _gc.is_ready():
+                    groq_client_for_assess = _gc
             except Exception:
-                grok_client_for_assess = None
+                groq_client_for_assess = None
 
         _assess_total = len(posts)
         _assess_done = 0
@@ -446,23 +446,23 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                 except Exception:
                     pass
 
-            _grok_done = False
-            if grok_client_for_assess is not None and (quota_hit or id(p) not in gemini_ids or gclient is None):
+            _groq_done = False
+            if groq_client_for_assess is not None and (quota_hit or id(p) not in gemini_ids or gclient is None):
                 try:
-                    _gdata = grok_client_for_assess.generate(f"Assess this post. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"other\",\"sensitive\":false,\"is_breaking\":false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]}")
+                    _gdata = groq_client_for_assess.generate(f"Assess this post. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"other\",\"sensitive\":false,\"is_breaking\":false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]}")
                     _t2 = re.sub(r"^```(?:json)?\s*", "", _gdata.strip()); _t2 = re.sub(r"\s*```$", "", _t2)
                     _d2 = json.loads(_t2)
                     _rel = int(_d2.get("relevance", 50)); _conv = int(_d2.get("conversation", 50)); _rec = int(_d2.get("recency", 70))
                     _promo = round(_rel*0.30 + _conv*0.35 + _rec*0.15 + 20)
                     _opp = round((_rel*0.40 + _conv*0.35 + _rec*0.25)/10, 1)
                     _dec = "A_PROMOTE" if _promo >= 80 else ("B_ENGAGE" if _promo >= 60 else "D_SKIP")
-                    assessed.append({**p, "decision": _dec, "promo": _promo, "opp": _opp, "theme": _d2.get("theme", "other"), "reason": "Grok Assess"})
-                    _grok_done = True
+                    assessed.append({**p, "decision": _dec, "promo": _promo, "opp": _opp, "theme": _d2.get("theme", "other"), "reason": "Groq Assess"})
+                    _groq_done = True
                     continue
                 except Exception:
                     pass
 
-            if _grok_done: continue
+            if _groq_done: continue
             try:
                 h = heuristic_assess(p)
             except Exception:
@@ -502,12 +502,21 @@ if st.session_state.assessed:
                 with st.spinner("Generating fresh grounded draft..."):
                     # 2026-11-11: Fix - do NOT force decision to A_PROMOTE, keep original (Engage stays Engage).
                     # Reason: old code promoted every Engage post to Promote.
+                    # 2026-11-11: Stage 5C - Create Groq client for review, so Option B actually appears. Old code passed grok_client=None, so review never ran.
+                    _groq_c = None
+                    if GroqClient is not None:
+                        try:
+                            _groq_c = GroqClient(api_key=os.getenv("GROQ_API_KEY", "") or os.getenv("GROK_API_KEY", ""), model=GROQ_MODEL)
+                            if not _groq_c.is_ready():
+                                _groq_c = None
+                        except Exception:
+                            _groq_c = None
                     from drafting.generator import generate_drafts
                     generate_drafts(
                         client=st.session_state.get("gemini_client"), 
                         item=post, 
                         variant=0, 
-                        grok_client=st.session_state.get("grok_client")
+                        groq_client=_groq_c
                     )
                 # 2026-11-11: Fix - show draft, do NOT st.rerun() immediately.
                 # Reason: old st.rerun() hid the draft, button looked like it did nothing.
@@ -536,7 +545,7 @@ if st.session_state.assessed:
                     st.caption("Groq review not available (Groq failed / no key / quota) - Option A is single-engine.")
                 # Fallback label: if comment is from grounding templates, generator already used it, show it
                 if _a and "This raises a real question" in _a:
-                    st.caption("Fallback from grounding document (Gemini + Grok both failed) - template from book grounding.")
+                    st.caption("Fallback from grounding document (Gemini + Groq both failed) - template from book grounding.")
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
@@ -556,15 +565,15 @@ with st.expander("Dual-Engine Debug & Diagnostic"):
                 except Exception as e: st.error(f"Gemini failed: {e}")
     with col_g2:
         if st.button("Test Groq Now", key="test_groq_diag_v493"):
-            if GrokClient is None:
+            if GroqClient is None:
                 st.error("GroqClient failed to import.")
             else:
                 try:
-                    gc = GrokClient(api_key=os.getenv("GROQ_API_KEY", ""), model=GROK_MODEL)
+                    gc = GroqClient(api_key=os.getenv("GROQ_API_KEY", "") or os.getenv("GROK_API_KEY", ""), model=GROQ_MODEL)
                     if not gc.is_ready(): st.error(f"Groq init failed: {gc.init_error}")
                     else: st.success(f"Groq OK: {gc.generate('Say Hi in 2 words.')}")
                 except Exception as ge: st.error(f"Groq failed: {ge}")
-    st.write(f"GEMINI_MODEL: {GEMINI_MODEL} | GROQ_MODEL: {GROK_MODEL}")
+    st.write(f"GEMINI_MODEL: {GEMINI_MODEL} | GROQ_MODEL: {GROQ_MODEL}")
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
