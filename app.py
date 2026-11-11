@@ -511,12 +511,26 @@ if st.session_state.assessed:
                     )
                 # 2026-11-11: Fix - show draft, do NOT st.rerun() immediately.
                 # Reason: old st.rerun() hid the draft, button looked like it did nothing.
-                st.subheader("Option A - Draft")
-                st.write(post.get("comment", "No draft generated - check logs."))
+                # 2026-11-11: Fix - show formatted drafts + Copy boxes for both engines, + fallback label.
+                # Reason: old code used st.write only, no copy, no formatted display.
+                st.subheader("Option A - Gemini draft (formatted)")
+                _a = post.get("comment", "")
+                if _a:
+                    st.markdown(_a)
+                    st.text_area("Copy Option A", value=_a, key=f"copy_a_{idx}_v493", height=150)
+                else:
+                    st.write("No draft generated - check logs.")
                 if post.get("grok_comment"):
-                    st.subheader("Option B - Grok reviewed")
-                    st.write(post.get("grok_comment"))
-                    st.caption(post.get("grok_note", ""))
+                    st.subheader("Option B - Grok reviewed (formatted)")
+                    _b = post.get("grok_comment", "")
+                    st.markdown(_b)
+                    st.text_area("Copy Option B", value=_b, key=f"copy_b_{idx}_v493", height=150)
+                    st.caption(f"Grok note: {post.get('grok_note','')} | Verdict: {post.get('grok_verdict','')}")
+                else:
+                    st.caption("Grok review not available (Grok failed / no key / quota) - Option A is single-engine.")
+                # Fallback label: if comment is from grounding templates, generator already used it, show it
+                if _a and "This raises a real question" in _a:
+                    st.caption("Fallback from grounding document (Gemini + Grok both failed) - template from book grounding.")
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
