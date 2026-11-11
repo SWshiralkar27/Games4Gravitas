@@ -95,9 +95,12 @@ SERPER_API_KEY = _os.getenv("SERPER_API_KEY", "")
 SEARCH_PROVIDER = "serper" if SERPER_API_KEY else "duckduckgo"
 YOUTUBE_API_KEY = _os.getenv("YOUTUBE_API_KEY", "")
 
-# Grok fallback (separate quota from Gemini)
-GROK_MODEL = "openai/gpt-oss-20b"
-GROK_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+# 2026-11-11: Stage 2 - Groq fallback (separate quota from Gemini). Reason: was already calling Groq API, only names said Grok.
+GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+# Alias for old code until Stage 4 - app.py still imports GROK_MODEL
+GROK_MODEL = GROQ_MODEL
+GROK_API_URL = GROQ_API_URL
 
 # Fallback model suggestion when 3.8 Flash is out
 QUOTA_FALLBACK_MODEL = "gemini-3.1-flash-lite"
