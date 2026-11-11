@@ -509,7 +509,7 @@ if st.session_state.assessed:
                     variant=0, 
                     grok_client=st.session_state.get("grok_client")
                     )
-                                st.rerun()
+                    st.rerun()
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
