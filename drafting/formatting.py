@@ -83,12 +83,13 @@ def _break_after_full_stop(text):
 def word_range(platform: str) -> tuple[int, int]:
     return (70, 90)
 
-def book_mention_form(platform: str) -> str:
-    # 2026-11-11: Fix - bold only, no Amazon link. Reason: placeholder link leaked into Copy box.
-    return "**Games for Gravitas**"
+def book_mention_form(platform: str, variant: int = 0) -> str:
+    # 2026-11-11: Fix - bold only, no Amazon link. Reason: placeholder YOUR_BOOK_ID leaked into Copy box as raw markdown.
+    # 2026-11-11: Fix - added variant param + fixed indent. Reason: old code had dead code after return with wrong indent + undefined variant -> IndentationError.
+    if platform in PLAIN_TEXT_PLATFORMS:
+        return "Games for Gravitas"
     if variant == 0:
-    # 2026-11-11: Fix - bold only, no 【entity-Amazon¦canonical_name=Amazon】 link. Reason: placeholder link leaked into Copy box as raw markdown.
-    return f"**{BOOK_TITLE}**"
+        return f"**{BOOK_TITLE}**"
     elif variant == 1:
         return f"*{BOOK_TITLE}*"
     else:
