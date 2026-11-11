@@ -497,27 +497,19 @@ if st.session_state.assessed:
                 _tmpl = format_draft(template_draft(post))
                 st.write(_tmpl)
             if st.button("Generate draft anyway for this post", key=f"draft_{idx}_ai"):
-                usage2 = get_usage(GEMINI_MODEL)
-                draft_a = None
-                if usage2["remaining"] <= 0 and GrokClient is not None:
-                    try:
-                        _gdk = GrokClient(api_key=os.getenv("GROK_API_KEY", ""), model=GROK_MODEL)
-                        if _gdk.is_ready():
-                            _gd = _gdk.generate(f"Write ONE comment in CEA structure (Compliment, Expand, Ask) under 70 words for: {post.get('title','')}")
-                            draft_a = format_draft(_gd) if _gd else template_draft(post)
-                    except Exception:
-                        draft_a = template_draft(post)
-                else:
-                    try:
-                        if GeminiClient is not None:
-                            g = GeminiClient(api_key=os.getenv("GEMINI_API_KEY",""), model=GEMINI_MODEL)
-                            if g.is_ready():
-                                draft_a = format_draft(g.generate(f"Write ONE comment in CEA structure (Compliment, Expand, Ask) under 70 words for: {post.get('title','')}"))
-                    except Exception:
-                        draft_a = template_draft(post)
-                if not draft_a: draft_a = template_draft(post)
-                st.markdown(draft_a)
-                st.code(draft_a, language="markdown")
+            with st.spinner("Generating fresh grounded draft..."):
+            if "A_PROMOTE" in str(getattr(post, "decision", "")):
+                from models import Decision
+                post.decision = Decision.A_PROMOTE
+                
+            from drafting.generator import generate_drafts
+            generate_drafts(
+                client=st.session_state.get("gemini_client"), 
+                item=post, 
+                variant=0, 
+                grok_client=st.session_state.get("grok_client")
+            )
+            st.rerun()
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
