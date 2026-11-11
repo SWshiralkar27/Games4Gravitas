@@ -1,8 +1,8 @@
-# discovery/deep.py - v4.9.3 - Step 2 Deep Discovery with Commentability Guardrails
+# discovery/deep.py - v4.9.4 - Step 2 Deep Discovery with Blog & Commentability Guardrails
 # Path: discovery/deep.py - upload to discovery/ folder
 # Step 1 (discovery/__init__.py) finds title-matches. Step 2 (this file) fetches the BODY
-# and checks commentability for kept candidates only (max ~23) and weeds out ones where
-# comments are closed, disabled, or locked.
+# and checks commentability for kept candidates only (max ~23) and weeds out static blogs,
+# closed comments, and locked threads.
 import re
 import time
 import html as _html
@@ -86,6 +86,19 @@ def _get_video_id(url):
         return m.group(1)
     return ""
 
+def classify_platform_from_url(url: str, declared_platform: str) -> str:
+    """Detects static corporate blogs and vendor articles mislabeled as social networks."""
+    u = (url or "").lower()
+    if any(b in u for b in ["/blog/", ".com/blog/", "whatfix.com", "hubspot.com", "wordpress.com", "medium.com/@"]):
+        return "Web - Blog"
+    if "x.com" in u or "twitter.com" in u:
+        return "X"
+    if "linkedin.com" in u:
+        return "LinkedIn"
+    if "youtube.com" in u or "youtu.be" in u:
+        return "YouTube"
+    return declared_platform
+
 def _fetch_url_data(url, max_chars=6000):
     """Fetches both raw HTML and extracted clean text for validation."""
     if not url or requests is None:
@@ -123,6 +136,10 @@ def _is_commentable(url, html_text, platform):
     u = (url or "").lower()
     html_low = (html_text or "").lower()
 
+    # 0. Static Blog / Website Check (Blogs do not have interactive comment threads for social marketing)
+    if platform == "web - blog" or "/blog/" in u or "whatfix.com" in u:
+        return False, "WEED OUT - Static corporate blog / non-interactive web page"
+
     # 1. YouTube check
     if "youtube" in platform or "youtube.com" in u or "youtu.be" in u:
         if "comments are turned off" in html_low or "comments have been turned off" in html_low:
@@ -154,10 +171,13 @@ def deep_fetch(post):
         url = (post.get("link") or "").strip()
         platform = (post.get("platform") or "").lower()
         
+        # Reclassify URL if it's a hidden blog
+        platform = classify_platform_from_url(url, platform)
+        post["platform"] = platform
+        
         # YouTube: transcript first
         if "youtube" in platform or "youtube.com" in url or "youtu.be" in url:
             txt, status = _fetch_youtube_transcript(url)
-            # Also fetch page HTML to check if comments are disabled
             raw_html, txt2, status2 = _fetch_url_data(url)
             if txt and len(txt) >= 200:
                 return txt, raw_html, "youtube-transcript", status
@@ -183,7 +203,7 @@ def deep_filter(post, deep_text, raw_html=""):
     url = post.get("link", "")
     platform = post.get("platform", "")
 
-    # 1. Commentability Filter
+    # 1. Commentability & Platform Filter (Blocks blogs and locked threads)
     commentable, comment_reason = _is_commentable(url, raw_html, platform)
     if not commentable:
         return False, comment_reason
