@@ -214,7 +214,7 @@ if st.session_state.get("discovered") or st.session_state.get("discovery_raw_lin
     _seen_txt = "\n".join(sorted(_all_seen))
     st.sidebar.download_button("⬇ Download seen_posts.txt (all 75 raw)", _seen_txt, file_name="seen_posts.txt", mime="text/plain", key="download_seen_v493")
 
-st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Grok: {'OK' if os.getenv('GROQ_API_KEY') else 'MISSING'} | Model:         ")
+st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Groq: {'OK' if os.getenv('GROQ_API_KEY') else 'MISSING'} | Model:         ")
 st.sidebar.caption(f"Search: {SEARCH_PROVIDER} | Serper key: {'OK' if SERPER_API_KEY else 'not set - using DuckDuckGo'}")
 st.sidebar.caption(f"Discovery: {DISCOVERY_VERSION}")
 if not DISCOVERY_IS_NEW:
