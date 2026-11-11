@@ -25,7 +25,8 @@ def _load_grounding_text(filename: str) -> str:
     return ""
 
 def build_draft_prompt(item, variant: int) -> tuple[str, str]:
-    plain = item.platform in PLAIN_TEXT_PLATFORMS
+_platform = item.get("platform") if isinstance(item, dict) else getattr(item, "platform", "")
+    plain = _platform in PLAIN_TEXT_PLATFORMS
     lo, hi = word_range(item.platform)
     context = item.content_for_analysis or item.snippet
     
