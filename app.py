@@ -523,14 +523,17 @@ if st.session_state.assessed:
                     st.text_area("Edit / Copy Option A", value=_a, key=f"copy_a_{idx}_v493", height=150)
                 else:
                     st.write("No draft generated - check logs.")
-                if post.get("grok_comment"):
-                    st.subheader("Option B - Grok reviewed (formatted)")
-                    _b = post.get("grok_comment", "")
+                # 2026-11-11: Stage 5B - Read groq_ first, fall back to grok_ for old drafts.
+                _b = post.get("groq_comment") or post.get("grok_comment") or ""
+                if _b:
+                    st.subheader("Option B - Groq reviewed (formatted)")
                     st.markdown(_b)
-                    st.text_area("Copy Option B", value=_b, key=f"copy_b_{idx}_v493", height=150)
-                    st.caption(f"Grok note: {post.get('grok_note','')} | Verdict: {post.get('grok_verdict','')}")
+                    st.caption("Copy below — click the copy icon top-right of the code box:")
+                    st.code(_b, language="markdown")
+                    st.text_area("Edit / Copy Option B", value=_b, key=f"copy_b_{idx}_v493", height=150)
+                    st.caption(f"Groq note: {post.get('groq_note') or post.get('grok_note','')} | Verdict: {post.get('groq_verdict') or post.get('grok_verdict','')}")
                 else:
-                    st.caption("Grok review not available (Grok failed / no key / quota) - Option A is single-engine.")
+                    st.caption("Groq review not available (Groq failed / no key / quota) - Option A is single-engine.")
                 # Fallback label: if comment is from grounding templates, generator already used it, show it
                 if _a and "This raises a real question" in _a:
                     st.caption("Fallback from grounding document (Gemini + Grok both failed) - template from book grounding.")
