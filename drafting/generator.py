@@ -23,9 +23,7 @@ def _sanitize_generic_opener(text: str) -> str:
     lower_c = cleaned.lower()
     for opener in BANNED_OPENERS:
         if lower_c.startswith(opener):
-            # Cut off the banned opener phrase and any immediate punctuation/whitespace following it
             cleaned = cleaned[len(opener):].lstrip(" ,.!:-")
-            # Capitalize the new starting letter if necessary
             if cleaned:
                 cleaned = cleaned[0].upper() + cleaned[1:]
             break
@@ -33,13 +31,16 @@ def _sanitize_generic_opener(text: str) -> str:
 
 def build_fallback_comment(item, plain: bool) -> str:
     book = BOOK_NAME_YOUTUBE if plain else f"[{BOOK_TITLE}]({BOOK_LINK})"
-    topic = item.title.split("|")[0].strip() or "this discussion"
+    item_title = item.get("title") if isinstance(item, dict) else getattr(item, "title", "")
+    topic = item_title.split("|")[0].strip() or "this discussion"
+    
+    item_link = item.get("link") if isinstance(item, dict) else getattr(item, "link", "")
     templates = [
         "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur leadership approach sits at the heart of {b}, where leaders learn to split the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
         "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? In {b} I argue that structured games are a safe way to practise high-stakes decisions under pressure. Where do you see leaders getting that kind of practice today?",
         "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. {b} is built as a playbook of modular exercises leaders apply, not passive theory they read. Which part of your own practice would you turn into an exercise first?",
     ]
-    idx = int(hashlib.md5(item.link.encode() if item.link else b"fallback").hexdigest(), 16) % len(templates)
+    idx = int(hashlib.md5(item_link.encode() if item_link else b"fallback").hexdigest(), 16) % len(templates)
     return templates[idx].format(t=topic, b=book)
 
 def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
@@ -71,23 +72,22 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     fallback_raw_text = ""
 
     if raw:
-        # Try parsing as JSON first
         try:
             from gemini_client import parse_gemini_json as _p
             parsed = _p(raw)
         except Exception:
             pass
         
-        # If JSON parsing failed, check if raw is a plain string response from the LLM
         if not parsed and isinstance(raw, str) and len(raw.strip()) > 30:
             fallback_raw_text = raw.strip()
         elif isinstance(raw, dict):
-            # If client.generate returned a dict wrapper
             txt = raw.get("text") or raw.get("recommended", "")
             if txt and len(str(txt)) > 30:
                 fallback_raw_text = str(txt).strip()
 
     kept = []
+    item_platform = item.get("platform") if isinstance(item, dict) else getattr(item, "platform", "")
+    
     if parsed and isinstance(parsed, dict):
         drafts = [clean_text(parsed.get("recommended", ""))] + [clean_text(str(a)) for a in parsed.get("alternatives", [])]
         archetypes = parsed.get("archetypes", ["Insight Add", "Curious Question", "Play Invite"])
@@ -95,60 +95,79 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
             if not d:
                 continue
             d = _sanitize_generic_opener(d)
-            if item.decision == Decision.A_PROMOTE:
-                plain = item.platform in PLAIN_TEXT_PLATFORMS
+            if _decision == Decision.A_PROMOTE:
+                plain = item_platform in PLAIN_TEXT_PLATFORMS
                 form = book_mention_form(variant, plain)
-                # Ensure book mention is correctly inserted if missing
                 if BOOK_TITLE.lower() not in d.lower():
                     d = f"{d} (Explore more in **{BOOK_TITLE}**)."
                 d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
                 d = d.replace("BOOKPLACEHOLDER", form)
-            d = format_for_platform(d, item.platform)
+            d = format_for_platform(d, item_platform)
             kept.append((d, archetypes[idx] if idx < len(archetypes) else ""))
 
-    # If JSON parsing wasn't used but we have a valid text response from Gemini
     elif fallback_raw_text:
         d = clean_text(fallback_raw_text)
         d = _sanitize_generic_opener(d)
-        if item.decision == Decision.A_PROMOTE:
-            plain = item.platform in PLAIN_TEXT_PLATFORMS
+        if _decision == Decision.A_PROMOTE:
+            plain = item_platform in PLAIN_TEXT_PLATFORMS
             form = book_mention_form(variant, plain)
             if BOOK_TITLE.lower() not in d.lower():
                 d = f"{d} For a structured playbook on this, see **{BOOK_TITLE}**."
             d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
             d = d.replace("BOOKPLACEHOLDER", form)
-        d = format_for_platform(d, item.platform)
+        d = format_for_platform(d, item_platform)
         kept.append((d, "Insight Add"))
 
-    # Ultimate fallback if everything else failed
     if not kept:
-        plain = item.platform in PLAIN_TEXT_PLATFORMS
+        plain = item_platform in PLAIN_TEXT_PLATFORMS
         fallback_text = build_fallback_comment(item, plain)
         fallback_text = _sanitize_generic_opener(fallback_text)
-        fallback_text = format_for_platform(fallback_text, item.platform)
+        fallback_text = format_for_platform(fallback_text, item_platform)
         kept.append((fallback_text, "Insight Add"))
 
     if kept:
-        item.comment, item.draft_archetype = kept[0][0], kept[0][1]
-        item.alternatives = [k[0] for k in kept[1:3]]
+        comment_val, archetype_val = kept[0][0], kept[0][1]
+        alternatives_val = [k[0] for k in kept[1:3]]
+        
+        if isinstance(item, dict):
+            item["comment"] = comment_val
+            item["draft_archetype"] = archetype_val
+            item["alternatives"] = alternatives_val
+        else:
+            item.comment = comment_val
+            item.draft_archetype = archetype_val
+            item.alternatives = alternatives_val
 
-        # Dual-engine Grok review if available
         if grok_client is not None:
             try:
-                reviewed = grok_client.review_draft(item, item.comment, item.draft_archetype)
+                reviewed = grok_client.review_draft(item, comment_val, archetype_val)
                 if reviewed:
                     cand = reviewed.get("reviewed_draft", "").strip()
                     if cand:
                         cand = _sanitize_generic_opener(cand)
-                        if item.decision == Decision.A_PROMOTE:
-                            plain = item.platform in PLAIN_TEXT_PLATFORMS
+                        if _decision == Decision.A_PROMOTE:
+                            plain = item_platform in PLAIN_TEXT_PLATFORMS
                             form = book_mention_form(variant, plain)
                             cand = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", cand, count=1)
                             cand = cand.replace("BOOKPLACEHOLDER", form)
-                        item.grok_comment = format_for_platform(cand, item.platform)
-                        item.grok_note = reviewed.get("what_changed", "")
-                        item.grok_verdict = reviewed.get("verdict", "")
-                        item.grok_available = True
+                        
+                        grok_comment_val = format_for_platform(cand, item_platform)
+                        grok_note_val = reviewed.get("what_changed", "")
+                        grok_verdict_val = reviewed.get("verdict", "")
+                        
+                        if isinstance(item, dict):
+                            item["grok_comment"] = grok_comment_val
+                            item["grok_note"] = grok_note_val
+                            item["grok_verdict"] = grok_verdict_val
+                            item["grok_available"] = True
+                        else:
+                            item.grok_comment = grok_comment_val
+                            item.grok_note = grok_note_val
+                            item.grok_verdict = grok_verdict_val
+                            item.grok_available = True
             except Exception as exc:
                 log.warning("Grok review skipped: %s", exc)
-                item.grok_available = False
+                if isinstance(item, dict):
+                    item["grok_available"] = False
+                else:
+                    item.grok_available = False
