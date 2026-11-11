@@ -500,16 +500,16 @@ if st.session_state.assessed:
                 with st.spinner("Generating fresh grounded draft..."):
                     if "A_PROMOTE" in str(getattr(post, "decision", "")):
                         from models import Decision
-                post.decision = Decision.A_PROMOTE
+                        post.decision = Decision.A_PROMOTE
                 
-                        from drafting.generator import generate_drafts
-            generate_drafts(
-                client=st.session_state.get("gemini_client"), 
-                item=post, 
-                variant=0, 
-                grok_client=st.session_state.get("grok_client")
-            )
-            st.rerun()
+                    from drafting.generator import generate_drafts
+                    generate_drafts(
+                    client=st.session_state.get("gemini_client"), 
+                    item=post, 
+                    variant=0, 
+                    grok_client=st.session_state.get("grok_client")
+                    )
+                                st.rerun()
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
