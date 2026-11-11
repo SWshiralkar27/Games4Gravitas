@@ -1,9 +1,9 @@
-"""Draft generation — uses CEA, validation, formatting, rotation, and v2.2 fallback templates."""
+"""Draft generation — robust handling of JSON or plain text responses with fallback integration."""
 from __future__ import annotations
-import re, logging, hashlib
+import re, logging, hashlib, json
 from models import clean_text, Decision
 from config import BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, PLAIN_TEXT_PLATFORMS
-from drafting.cea import build_draft_prompt, BOOK_THEMES
+from drafting.cea import build_draft_prompt
 from drafting.formatting import format_for_platform, book_mention_form
 from drafting.validation import is_valid_draft
 
@@ -13,11 +13,9 @@ def build_fallback_comment(item, plain: bool) -> str:
     book = BOOK_NAME_YOUTUBE if plain else f"[{BOOK_TITLE}]({BOOK_LINK})"
     topic = item.title.split("|")[0].strip() or "this discussion"
     templates = [
-        "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur idea sits at the heart of {b}, where leaders learn to split the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
-        "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? In {b} I argue that structured games are a safe way to practise high-stakes decisions. Where do you see leaders getting that kind of practice today?",
-        "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. {b} is built as a playbook of modular exercises leaders apply, not theory they read. Which part of your own practice would you turn into an exercise first?",
-        "This raises a real question about {t}: as AI takes over routine analysis, judgment, empathy and ethics become the scarce skills. {b} treats those non-automatable skills as the core of human advantage. Which of them is hardest to build in your experience?",
-        "This raises a real question about {t}: AI is becoming a strategic collaborator, not just a tool. {b} explores how humans and AI co-evolve in the hybrid intelligence era. How are you changing the way you work with it?",
+        "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur leadership approach sits at the heart of {b}, where leaders learn to split the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
+        "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? In {b} I argue that structured games are a safe way to practise high-stakes decisions under pressure. Where do you see leaders getting that kind of practice today?",
+        "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. {b} is built as a playbook of modular exercises leaders apply, not passive theory they read. Which part of your own practice would you turn into an exercise first?",
     ]
     idx = int(hashlib.md5(item.link.encode() if item.link else b"fallback").hexdigest(), 16) % len(templates)
     return templates[idx].format(t=topic, b=book)
@@ -39,15 +37,27 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
         log.warning("Gemini generation failed: %s. Using fallback template.", ex)
 
     parsed = None
+    fallback_raw_text = ""
+
     if raw:
+        # Try parsing as JSON first
         try:
             from gemini_client import parse_gemini_json as _p
             parsed = _p(raw)
         except Exception:
             pass
+        
+        # If JSON parsing failed, check if raw is a plain string response from the LLM
+        if not parsed and isinstance(raw, str) and len(raw.strip()) > 30:
+            fallback_raw_text = raw.strip()
+        elif isinstance(raw, dict):
+            # If client.generate returned a dict wrapper
+            txt = raw.get("text") or raw.get("recommended", "")
+            if txt and len(str(txt)) > 30:
+                fallback_raw_text = str(txt).strip()
 
     kept = []
-    if parsed:
+    if parsed and isinstance(parsed, dict):
         drafts = [clean_text(parsed.get("recommended", ""))] + [clean_text(str(a)) for a in parsed.get("alternatives", [])]
         archetypes = parsed.get("archetypes", ["Insight Add", "Curious Question", "Play Invite"])
         for idx, d in enumerate(drafts):
@@ -56,12 +66,28 @@ def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
             if item.decision == Decision.A_PROMOTE:
                 plain = item.platform in PLAIN_TEXT_PLATFORMS
                 form = book_mention_form(variant, plain)
+                # Ensure book mention is correctly inserted
+                if BOOK_TITLE.lower() not in d.lower():
+                    d = f"{d} (Explore more in **{BOOK_TITLE}**)."
                 d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
                 d = d.replace("BOOKPLACEHOLDER", form)
             d = format_for_platform(d, item.platform)
             kept.append((d, archetypes[idx] if idx < len(archetypes) else ""))
 
-    # Fallback mechanism if Gemini parsing or generation failed
+    # If JSON parsing wasn't used but we have a valid text response from Gemini
+    elif fallback_raw_text:
+        d = clean_text(fallback_raw_text)
+        if item.decision == Decision.A_PROMOTE:
+            plain = item.platform in PLAIN_TEXT_PLATFORMS
+            form = book_mention_form(variant, plain)
+            if BOOK_TITLE.lower() not in d.lower():
+                d = f"{d} For a structured playbook on this, see **{BOOK_TITLE}**."
+            d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
+            d = d.replace("BOOKPLACEHOLDER", form)
+        d = format_for_platform(d, item.platform)
+        kept.append((d, "Insight Add"))
+
+    # Ultimate fallback if everything else failed
     if not kept:
         plain = item.platform in PLAIN_TEXT_PLATFORMS
         fallback_text = build_fallback_comment(item, plain)
