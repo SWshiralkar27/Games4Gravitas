@@ -44,14 +44,22 @@ def build_fallback_comment(item, plain: bool) -> str:
 
 def generate_drafts(client, item, variant: int = 0, grok_client=None) -> None:
     _decision = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", None)
-    if item.decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE):
+    if _decision not in (Decision.A_PROMOTE, Decision.B_ENGAGE):
         return
-    item.draft_variant = variant
-    item.grok_available = False
-    item.grok_comment = ""
-    item.grok_note = ""
-    item.grok_verdict = ""
     
+    if isinstance(item, dict):
+        item["draft_variant"] = variant
+        item["grok_available"] = False
+        item["grok_comment"] = ""
+        item["grok_note"] = ""
+        item["grok_verdict"] = ""
+    else:
+        item.draft_variant = variant
+        item.grok_available = False
+        item.grok_comment = ""
+        item.grok_note = ""
+        item.grok_verdict = ""
+        
     prompt, _ = build_draft_prompt(item, variant)
     raw = None
     try:
