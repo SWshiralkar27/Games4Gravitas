@@ -1,6 +1,10 @@
 # config.py - v4.9.3.4 - Pillar B & C Focus Update
 # Root: config.py
-
+# --- Book & Platform Constants ---
+BOOK_TITLE = "Games for Gravitas"
+BOOK_LINK = "https://www.amazon.com/dp/YOUR_BOOK_ID"  # Replace with your actual book URL or landing page
+BOOK_NAME_YOUTUBE = "Games for Gravitas"
+PLAIN_TEXT_PLATFORMS = ["X", "LinkedIn", "YouTube", "Reddit", "Web - Blog"]
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # Serper auto-detect - if SERPER_API_KEY is in Secrets, use Serper; else DuckDuckGo
