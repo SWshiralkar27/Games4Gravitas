@@ -500,12 +500,8 @@ if st.session_state.assessed:
                 st.write(_tmpl)
             if st.button("Generate draft anyway for this post", key=f"draft_{idx}_ai"):
                 with st.spinner("Generating fresh grounded draft..."):
-                    from models import Decision
-                    if isinstance(post, dict):
-                        post["decision"] = Decision.A_PROMOTE
-                    else:
-                        post.decision = Decision.A_PROMOTE
-                
+                    # 2026-11-11: Fix - do NOT force decision to A_PROMOTE, keep original (Engage stays Engage).
+                    # Reason: old code promoted every Engage post to Promote.
                     from drafting.generator import generate_drafts
                     generate_drafts(
                         client=st.session_state.get("gemini_client"), 
@@ -513,7 +509,14 @@ if st.session_state.assessed:
                         variant=0, 
                         grok_client=st.session_state.get("grok_client")
                     )
-                    st.rerun()
+                # 2026-11-11: Fix - show draft, do NOT st.rerun() immediately.
+                # Reason: old st.rerun() hid the draft, button looked like it did nothing.
+                st.subheader("Option A - Draft")
+                st.write(post.get("comment", "No draft generated - check logs."))
+                if post.get("grok_comment"):
+                    st.subheader("Option B - Grok reviewed")
+                    st.write(post.get("grok_comment"))
+                    st.caption(post.get("grok_note", ""))
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
