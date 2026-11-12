@@ -213,7 +213,7 @@ if st.session_state.get("discovered") or st.session_state.get("discovery_raw_lin
     _seen_txt = "\n".join(sorted(_all_seen))
     st.sidebar.download_button("⬇ Download seen_posts.txt (all 75 raw)", _seen_txt, file_name="seen_posts.txt", mime="text/plain", key="download_seen_v493")
 
-st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Groq: {'OK' if os.getenv('GROQ_API_KEY') else 'MISSING'} | Model:         ")
+st.sidebar.caption(f"Gemini: {'OK' if os.getenv('GEMINI_API_KEY') else 'MISSING'} | Groq: {'OK' if os.getenv('GROQ_API_KEY') else 'MISSING'} | Model: {GEMINI_MODEL} / {GROQ_MODEL}")
 st.sidebar.caption(f"Search: {SEARCH_PROVIDER} | Serper key: {'OK' if SERPER_API_KEY else 'not set - using DuckDuckGo'}")
 st.sidebar.caption(f"Discovery: {DISCOVERY_VERSION}")
 if not DISCOVERY_IS_NEW:
@@ -511,19 +511,28 @@ if st.session_state.assessed:
                                 _groq_c = None
                         except Exception:
                             _groq_c = None
+                    # FIX 2026-11-12: Create real Gemini client (was None always) + capture return (generator may not mutate post)
+                    _gem_c = None
+                    try:
+                        if GeminiClient is not None:
+                            _tmp = GeminiClient(api_key=os.getenv("GEMINI_API_KEY",""), model=GEMINI_MODEL)
+                            if _tmp.is_ready():
+                                _gem_c = _tmp
+                    except Exception:
+                        _gem_c = None
                     from drafting.generator import generate_drafts
-                    generate_drafts(
-                        client=st.session_state.get("gemini_client"), 
-                        item=post, 
-                        variant=0, 
-                        groq_client=_groq_c
-                    )
+                    _result = generate_drafts(client=_gem_c, item=post, variant=0, groq_client=_groq_c)
+                    # Generator may return dict OR mutate post - use return first
+                    if isinstance(_result, dict) and _result.get("comment"):
+                        post.update(_result)
                 # 2026-11-11: Fix - show draft, do NOT st.rerun() immediately.
                 # Reason: old st.rerun() hid the draft, button looked like it did nothing.
                 # 2026-11-11: Fix - show formatted drafts + Copy boxes for both engines, + fallback label.
                 # Reason: old code used st.write only, no copy, no formatted display.
                 _is_fallback = "This raises a real question" in (post.get("comment", "") or "")
-                st.subheader("Option A - Fallback from grounding (formatted)" if _is_fallback else "Option A - Gemini draft (formatted)")
+                _u = get_usage(GEMINI_MODEL)
+                _is_groq_a = _u["remaining"] <= 0 and not _is_fallback
+                st.subheader("Option A - Fallback from grounding (formatted)" if _is_fallback else ("Option A - Groq fallback (Gemini quota out, formatted)" if _is_groq_a else "Option A - Gemini draft (formatted)"))
                 _a = post.get("comment", "")
                 if _a:
                     st.markdown(_a)
