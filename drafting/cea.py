@@ -47,7 +47,6 @@ _CATEGORY_FILE_BY_KEYWORD = {
     "debrief": "03_roi_architecture.txt",
     "roi": "03_roi_architecture.txt",
     "payoff": "03_roi_architecture.txt",
-    "payoff": "03_roi_architecture.txt",
     "prioritization": "03_roi_architecture.txt",
     "kirkpatrick": "03_roi_architecture.txt",
 }
@@ -127,7 +126,7 @@ ARCHETYPES:
 - Draft 3 = Play Invite: Invite them to rehearse this exact dilemma as a 20-min simulation/game.
 
 RULES: {lo}-{hi} words each. Warm, peer-to-peer practitioner tone. No emojis. No lecturing. No generic openers like "Great post".
-DATA RULE: Use ONE data point from the selected grounding category or BOOK THEMES above if it fits. If no category file is provided and no BOOK THEMES data point fits, use no data point. Do not invent numbers, studies, or claims not in grounding.
+DATA RULE: Use exactly ONE data point from the selected grounding category or BOOK THEMES above if it fits. Do NOT combine claims from different snippets. Do NOT merge treasure hunt, VR, and adoption claims into one sentence. Keep each claim with its original subject: treasure hunt = 3,000 senior oil managers mastered software within one month, VR = up to a 30% reduction in training duration, virtual games = 20% to 30% faster adoption. CORRECT: VR training simulations demonstrated up to a 30% reduction in training duration. INCORRECT: A virtual treasure hunt cut training time by up to 30%. If no category file is provided and no BOOK THEMES data point fits, use no data point. Do not invent numbers, studies, or claims not in grounding.
 BOOK RULE: {book_instruction}
 
 Return JSON: {{"recommended":"...", "alternatives":["...","..."], "archetypes":["Insight Add","Curious Question","Play Invite"]}}
