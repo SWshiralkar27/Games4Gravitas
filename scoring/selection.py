@@ -132,10 +132,10 @@ def select_for_gemini(posts):
 def template_draft(post, analysis=None):
     from drafting.formatting import format_draft
     title = (post.get("title", "") or "this post").strip()
+    # ACT-3 Step 3a: Template uses locked BOOK_THEMES Theme 1, Human Edge, no numbers, no old purposeful rehearsal theme
     raw = (
         f"This reframing of how teams actually decide under AI pressure stuck with me. "
-        f"Your point on {title[:80]} shows why purposeful rehearsal matters before a call locks in. "
-        f"Where have you seen rehearsal change a decision that would otherwise have gone the other way?"
+        f"Your point on {title[:80]} shows why the non-automatable human edge still matters, judgment, empathy, and critical thinking alongside AI. "
+        f"Where have you seen human judgment change a decision that AI alone would have got wrong?"
     )
     return format_draft(raw)
-
