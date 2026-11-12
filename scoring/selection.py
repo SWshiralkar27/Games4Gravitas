@@ -25,7 +25,9 @@ from config import (
     BREAKING_KEYWORDS, SOCIAL_PLATFORMS,
 )
 
-
+# ACT-3 Step 3b: Locked D1 phrase set, fallback only, not primary. Strong + Medium from locked D1.
+_STRONG_PHRASES = ["upskill", "reskill", "corporate training", "l&d", "learning and development", "hybrid intelligence", "human edge", "game-based", "experiential learning"]
+_MEDIUM_PHRASES = ["ai training", "ai upskilling", "leadership", "coaching", "workforce", "future of work", "adaptability", "critical thinking"]
 def _text(post):
     return ((post.get("title", "") or "") + " " + (post.get("snippet", "") or "")).lower()
 
@@ -61,9 +63,9 @@ def heuristic_assess(post):
     relevance = 30
     if theme_hits:
         relevance += min(40, len(theme_hits) * 20)
-    if any(w in text for w in ["ai", "leadership", "team", "upskill", "reskill", "manager", "hybrid"]):
+    if any(w in text for w in _STRONG_PHRASES + _MEDIUM_PHRASES):
         relevance += 15
-    if is_social and any(w in text for w in ["ai", "leadership", "team", "upskill", "reskill", "manager", "hybrid"]):
+    if is_social and any(w in text for w in _STRONG_PHRASES + _MEDIUM_PHRASES):
         relevance += 10
     relevance = min(95, relevance)
 
