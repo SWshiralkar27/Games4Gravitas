@@ -91,16 +91,18 @@ def heuristic_assess(post):
                 "theme": theme_hits[0] if theme_hits else "other",
                 "reason": "Breaking / fast news - 24h hold."}
 
-    # v4.6 heuristic thresholds: social Engage at 50, not 60
-    if promo >= A_PROMOTE:
+    # ACT-3 Step 2: Locked D1 - promote needs promo 70 and opp 6.5, engage needs promo 55 and opp 5.0
+    # A_PROMOTE and B_ENGAGE from config are promo thresholds (70, 55). Opp thresholds are locked D1.
+    if promo >= A_PROMOTE and opp >= 6.5:
         decision = "A_PROMOTE"
-    elif promo >= B_ENGAGE:
+    elif promo >= B_ENGAGE and opp >= 5.0:
         decision = "B_ENGAGE"
-    elif is_social and promo >= 50:
+    elif is_social and promo >= 50 and opp >= 5.0:
         decision = "B_ENGAGE"
-    elif is_question and comments <= 30 and promo >= 45:
+    elif is_question and comments <= 30 and promo >= 45 and opp >= 5.0:
         decision = "B_ENGAGE"
-    elif comments > SATURATION_COMMENTS and promo >= A_PROMOTE:
+    elif is_social and promo >= 45:
+        # Novel-term safeguard: social thread with decent promo but opp below 5.0, keep as engage for manual review, not skip
         decision = "B_ENGAGE"
     else:
         decision = "D_SKIP"
