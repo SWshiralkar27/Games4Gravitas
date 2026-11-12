@@ -7,14 +7,7 @@ from drafting.formatting import word_range, book_mention_form
 def _format_themes(themes) -> str:
     lines = []
     for i, t in enumerate(themes, 1):
-        if isinstance(t, dict):
-            lines.append(f"{i}. {t.get('name', '')} - {t.get('detail', '')}")
-        else:
-            s = str(t).strip()
-            if s and s[0].isdigit() and "." in s[:4]:
-                lines.append(s)
-            else:
-                lines.append(f"{i}. {s}")
+        lines.append(f"{i}. {t.get('name', '')} - {t.get('detail', '')}")
     return "\n".join(lines)
 
 # ACT-1: Map keywords in the post to a grounding category file.
