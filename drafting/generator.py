@@ -208,7 +208,11 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
                 log.info("Groq generated fresh (Gemini failed) - Stage 6A")
         except Exception as _ge:
             log.warning("Groq generation (Stage 6A) failed: %s. Using fallback template.", _ge)
-
+            # Surface real error in UI instead of generic "not available"
+            _err = str(_ge)[:200]
+            if isinstance(item, dict):
+                item["groq_note"] = f"Groq draft failed: {_err}"
+                item["grok_note"] = f"Groq draft failed: {_err}"
     is_fallback = False
     if not kept:
         plain = item_platform in PLAIN_TEXT_PLATFORMS
