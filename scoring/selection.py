@@ -46,7 +46,18 @@ def heuristic_assess(post):
 
     is_social = platform in SOCIAL_PLATFORMS
 
-    theme_hits = [t for t in BOOK_THEMES if t.lower() in text]
+    # ACT-3 Step 1: BOOK_THEMES is now list of dicts in config, handle dicts and strings, do not crash
+    def _book_theme_names():
+        names = []
+        for _t in BOOK_THEMES:
+            if isinstance(_t, dict):
+                _name = _t.get("name", "")
+                if _name:
+                    names.append(_name)
+            else:
+                names.append(str(_t))
+        return names
+    theme_hits = [t for t in _book_theme_names() if t and t.lower() in text]
     relevance = 30
     if theme_hits:
         relevance += min(40, len(theme_hits) * 20)
