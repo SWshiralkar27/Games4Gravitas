@@ -78,7 +78,7 @@ class GroqClient:
                     "max_tokens": max_tokens,
                     "temperature": 0.7,
                 },
-                timeout=20,
+                timeout=60,
             )
         except Exception as e:
             raise GroqTransientError(f"Groq request failed (network/timeout): {e}")
