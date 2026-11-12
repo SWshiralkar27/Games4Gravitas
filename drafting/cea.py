@@ -1,10 +1,17 @@
-"""#1 CEA prompt builder + #2 idea-seeding + theme rotation from v2.2."""
+#1 CEA prompt builder + #2 idea-seeding + theme rotation from v2.2.
 from __future__ import annotations
 import os
 from config import BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, IDEA_PHRASES, PLAIN_TEXT_PLATFORMS
 from drafting.formatting import word_range, book_mention_form
 
-BOOK_THEMES = [
+# ACT-1: Prefer BOOK_THEMES from config (locked 5 themes) if present, else use local fallback.
+# Safe import: if config does not have BOOK_THEMES yet, app keeps working with fallback.
+try:
+    from config import BOOK_THEMES as _CONFIG_BOOK_THEMES
+except Exception:
+    _CONFIG_BOOK_THEMES = None
+
+_FALLBACK_BOOK_THEMES = [
     {"name": "Centaur leadership", "detail": "Humans and AI together out-think either one alone."},
     {"name": "Purposeful rehearsal", "detail": "Structured games let leaders rehearse high-stakes decisions safely."},
     {"name": "Playbook over theory", "detail": "Modular exercises that leaders actively apply, not just read about."},
@@ -12,6 +19,45 @@ BOOK_THEMES = [
     {"name": "Hybrid Intelligence Era", "detail": "AI is a strategic collaborator; humans and AI co-evolve."},
     {"name": "Structured human-AI teaming", "detail": "The 7-Phase Model for building blended human-AI teams."},
 ]
+
+BOOK_THEMES = _CONFIG_BOOK_THEMES if isinstance(_CONFIG_BOOK_THEMES, list) and len(_CONFIG_BOOK_THEMES) > 0 else _FALLBACK_BOOK_THEMES
+
+def _format_themes(themes) -> str:
+    lines = []
+    for i, t in enumerate(themes, 1):
+        if isinstance(t, dict):
+            lines.append(f"{i}. {t.get('name', '')} - {t.get('detail', '')}")
+        else:
+            s = str(t).strip()
+            if s and s[0].isdigit() and "." in s[:4]:
+                lines.append(s)
+            else:
+                lines.append(f"{i}. {s}")
+    return "\n".join(lines)
+
+# ACT-1: Map keywords in the post to a grounding category file.
+_CATEGORY_FILE_BY_KEYWORD = {
+    "human edge": "01_hybrid_intelligence.txt",
+    "hybrid intelligence": "01_hybrid_intelligence.txt",
+    "experiential": "02_passive_ld.txt",
+    "passive": "02_passive_ld.txt",
+    "fail-safe": "02_passive_ld.txt",
+    "failsafe": "02_passive_ld.txt",
+    "facilitation": "03_roi_architecture.txt",
+    "debrief": "03_roi_architecture.txt",
+    "roi": "03_roi_architecture.txt",
+    "payoff": "03_roi_architecture.txt",
+    "payoff": "03_roi_architecture.txt",
+    "prioritization": "03_roi_architecture.txt",
+    "kirkpatrick": "03_roi_architecture.txt",
+}
+
+def _select_category_file(text: str) -> str:
+    low = (text or "").lower()
+    for kw, fname in _CATEGORY_FILE_BY_KEYWORD.items():
+        if kw in low:
+            return fname
+    return ""
 
 def _load_grounding_text(filename: str) -> str:
     try:
@@ -36,18 +82,24 @@ def build_draft_prompt(item, variant: int) -> tuple[str, str]:
     core_book = _load_grounding_text("00_book_core.txt")
     voice_rules = _load_grounding_text("04_voice.txt")
 
-    themes_str = "\n".join(f"{i}. {t['name']} - {t['detail']}" for i, t in enumerate(BOOK_THEMES, 1))
+    themes_str = _format_themes(BOOK_THEMES)
 
     _decision = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", "")
     _decision_val = getattr(_decision, "value", _decision) if not isinstance(_decision, str) else _decision
     _decision_reason = item.get("decision_reason", "") if isinstance(item, dict) else getattr(item, "decision_reason", "")
     _title = item.get("title", "") if isinstance(item, dict) else getattr(item, "title", "")
+
+    # ACT-1: Load selected category file based on post content. If none fits, load nothing.
+    _search_text = f"{_title} {context} {_decision_reason}"
+    _category_file = _select_category_file(_search_text)
+    category_text = _load_grounding_text(_category_file) if _category_file else ""
+
     if _decision_val == "A_PROMOTE":
         form = book_mention_form(variant, plain)
         book_instruction = f'Mention the book exactly once as {form}. Do NOT add any other book title, author name, or URL. Variant {variant}: 0=linked, 1=plain title curiosity, 2=curiosity phrase without link.'
     else:
         phrases = ", ".join(f'"{p}"' for p in IDEA_PHRASES)
-        book_instruction = f'Do NOT mention the book, author, Amazon, or any URL. You MAY seed ONE idea phrase if it fits naturally: {phrases}. This builds association without selling.'
+        book_instruction = f'Do NOT mention the book, author, 【entity-Amazon¦canonical_name=Amazon】, or any URL. You MAY seed ONE idea phrase if it fits naturally: {phrases}. This builds association without selling.'
 
     prompt = f"""
 {core_book}
@@ -61,6 +113,9 @@ POST: {_title} | {context}
 BOOK THEMES (choose one per draft, the single most relevant to THIS post; never stack themes):
 {themes_str}
 
+SELECTED GROUNDING CATEGORY FILE (use only data from this file plus BOOK THEMES above. If this section is empty, use no data point, do not invent one):
+{category_text}
+
 STRUCTURE for EVERY comment — CEA:
 1. Compliment (1 line): Name the SPECIFIC idea, not "great post".
 2. Expand (2-3 lines): Add ONE insight connecting the post's idea to your chosen theme with a cause-and-effect bridge.
@@ -72,6 +127,7 @@ ARCHETYPES:
 - Draft 3 = Play Invite: Invite them to rehearse this exact dilemma as a 20-min simulation/game.
 
 RULES: {lo}-{hi} words each. Warm, peer-to-peer practitioner tone. No emojis. No lecturing. No generic openers like "Great post".
+DATA RULE: Use ONE data point from the selected grounding category or BOOK THEMES above if it fits. If no category file is provided and no BOOK THEMES data point fits, use no data point. Do not invent numbers, studies, or claims not in grounding.
 BOOK RULE: {book_instruction}
 
 Return JSON: {{"recommended":"...", "alternatives":["...","..."], "archetypes":["Insight Add","Curious Question","Play Invite"]}}
