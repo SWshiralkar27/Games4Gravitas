@@ -2,7 +2,8 @@
 # Root: groq_client.py - replaces grok_client.py
 # When Gemini quota is out / 503 / init failed, Groq takes over as generator.
 # 2026-11-11: Stage 3 - Renamed from grok_client.py. Reason: file was already calling Groq API, only class names said Grok.
-import json
+# 2026-11-12: FIX review_draft robust parse - was json.loads(raw) only, failed on ```json fences / leading text, returned original draft as fake review.
+import json, re
 
 try:
     import requests
@@ -22,9 +23,32 @@ def _normalize_groq_model(m):
         return m
     return "openai/gpt-oss-20b"
 
+def _parse_groq_json(raw):
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        d = json.loads(text)
+        if isinstance(d, dict):
+            return d
+    except Exception:
+        pass
+    try:
+        s = text.find("{"); e = text.rfind("}")
+        if s != -1 and e != -1 and e > s:
+            d = json.loads(text[s:e+1])
+            if isinstance(d, dict):
+                return d
+    except Exception:
+        pass
+    return None
+
 class GroqClient:
     def __init__(self, api_key=None, model="openai/gpt-oss-20b", api_url="https://api.groq.com/openai/v1/chat/completions"):
-        # Check both GROQ_API_KEY and fallback to legacy GROK_API_KEY if needed
         import os
         self.api_key = (api_key or os.getenv("GROQ_API_KEY", "") or os.getenv("GROK_API_KEY", "")).strip()
         self.model = _normalize_groq_model(model)
@@ -58,15 +82,12 @@ class GroqClient:
             )
         except Exception as e:
             raise GroqTransientError(f"Groq request failed (network/timeout): {e}")
-        
-        # Handle status codes
         if resp.status_code == 429:
             raise GroqQuotaExceeded(f"Groq quota exceeded (429). Details: {resp.text[:300]}")
         if resp.status_code in (500, 502, 503, 504):
             raise GroqTransientError(f"Groq overloaded ({resp.status_code}). Details: {resp.text[:300]}")
         if resp.status_code != 200:
             raise GroqTransientError(f"Groq failed ({resp.status_code}): {resp.text[:300]}")
-        
         try:
             data = resp.json()
             text = data["choices"][0]["message"]["content"].strip()
@@ -78,10 +99,12 @@ class GroqClient:
         return self.generate("Reply with exactly: OK", max_tokens=20)
 
     def review_draft(self, item, draft, archetype):
-        # 2026-11-11: Added for generator.py Option B. Reason: old grok_client.py had no review_draft, so Groq review would fail.
         prompt = f"Review this draft comment for tone and grounding. Return JSON only: {{\"reviewed_draft\": \"...\", \"what_changed\": \"...\", \"verdict\": \"keep/edit\"}}. Draft: {draft}"
         try:
             raw = self.generate(prompt, max_tokens=800)
-            return json.loads(raw)
+            parsed = _parse_groq_json(raw)
+            if parsed and parsed.get("reviewed_draft"):
+                return parsed
+            return {"reviewed_draft": draft, "what_changed": "Groq review parse failed, kept original", "verdict": "keep"}
         except Exception:
             return {"reviewed_draft": draft, "what_changed": "Groq review failed, kept original", "verdict": "keep"}
