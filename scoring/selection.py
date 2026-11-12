@@ -41,10 +41,13 @@ def heuristic_assess(post):
         return {"decision": "D_SENSITIVE", "promo": 0, "opp": 0.0,
                 "theme": "other", "reason": "Sensitive topic - blocked."}
 
-    if post.get("_auto_skip") or platform.startswith("Web -") or platform == "Medium":
+    # ACT-3 Step 3c: Web and Medium are assessed, not auto-skipped. Discovery returns mostly Web/Medium,
+    # so auto-skipping them would give 0 assessed and no value. Only _auto_skip skips.
+    # Do NOT re-add platform-based skip for Web/Medium, and do NOT fix case-sensitivity to skip them.
+    if post.get("_auto_skip"):
         return {"decision": "D_SKIP", "promo": 0, "opp": 0.0,
                 "theme": "other",
-                "reason": "Web article - no thread to join. Pruned to social threads first."}
+                "reason": "Auto-skipped by upstream filter."}
 
     is_social = platform in SOCIAL_PLATFORMS
 
