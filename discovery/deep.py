@@ -140,7 +140,7 @@ def _is_commentable(url, html_text, platform):
     # 0. Social platforms are commentable by definition, pass
     if any(s in plat for s in ["linkedin", "threads", "facebook", "instagram"]) or "linkedin.com" in u or "threads.net" in u or "threads.com" in u:
         return True, "Social platform commentable"
-    if "x.com" in u or "twitter.com" in u or plat == "x":
+    if "x.com" in u or "twitter.com" in u or plat == "x" or plat.startswith("x -") or plat.startswith("x "):
         return True, "X commentable"
 
     # 1. YouTube check
