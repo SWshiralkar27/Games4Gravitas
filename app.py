@@ -533,28 +533,33 @@ if st.session_state.assessed:
                 _u = get_usage(GEMINI_MODEL)
                 _is_groq_a = _u["remaining"] <= 0 and not _is_fallback
                 st.subheader("Option A - Fallback from grounding (formatted)" if _is_fallback else ("Option A - Groq fallback (Gemini quota out, formatted)" if _is_groq_a else "Option A - Gemini draft (formatted)"))
-                _a = post.get("comment", "")
-                if _a:
-                    st.markdown(_a)
-                    st.caption("Copy below — click the copy icon top-right of the code box:")
-                    st.code(_a, language="markdown")
-                    st.text_area("Edit / Copy Option A", value=_a, key=f"copy_a_{idx}_v493", height=150)
+                # 2026-11-12: 3-slot UI - Gemini / Groq reviewed-or-authored / Heuristic fallback
+                _gem = post.get("gemini_comment", "") or (post.get("comment", "") if post.get("draft_source") == "gemini" else "")
+                _groq = post.get("groq_comment", "") or ""
+                _fall = post.get("fallback_comment", "") or (post.get("comment", "") if post.get("draft_source") == "fallback" else "")
+                _role = post.get("groq_role", "") or post.get("groq_verdict", "")
+                _src = post.get("draft_source", "")
+
+                st.subheader("1. Option A - Gemini generated draft")
+                if _gem:
+                    st.markdown(_gem)
+                    st.code(_gem, language="markdown")
                 else:
-                    st.write("No draft generated - check logs.")
-                # 2026-11-11: Stage 5B - Read groq_ first, fall back to grok_ for old drafts.
-                _b = post.get("groq_comment") or post.get("grok_comment") or ""
-                if _b:
-                    st.subheader("Option B - Groq reviewed (formatted)")
-                    st.markdown(_b)
-                    st.caption("Copy below — click the copy icon top-right of the code box:")
-                    st.code(_b, language="markdown")
-                    st.text_area("Edit / Copy Option B", value=_b, key=f"copy_b_{idx}_v493", height=150)
-                    st.caption(f"Groq note: {post.get('groq_note') or post.get('grok_note','')} | Verdict: {post.get('groq_verdict') or post.get('grok_verdict','')}")
+                    st.caption("Gemini failed - quota out / error. See Option B for Groq authored draft.")
+
+                st.subheader("2. Option B - Groq reviewed" if _role == "review" else "2. Option B - Groq authored (Gemini out)")
+                if _groq:
+                    st.markdown(_groq)
+                    st.code(_groq, language="markdown")
+                    st.caption(f"Groq note: {post.get('groq_note') or ''} | Verdict: {post.get('groq_verdict') or ''} | Role: {_role}")
                 else:
-                    st.caption("Groq review not available (Groq failed / no key / quota) - Option A is single-engine.")
-                # Fallback label: if comment is from grounding templates, generator already used it, show it
-                if _a and "This raises a real question" in _a:
-                    st.caption("Fallback from grounding document (Gemini + Groq both failed) - template from book grounding.")
+                    st.caption("Groq review / authored not available - Groq failed / no key / quota.")
+
+                if _src == "fallback" and _fall:
+                    st.subheader("3. Fallback - Heuristic draft from grounding (both engines failed)")
+                    st.markdown(_fall)
+                    st.code(_fall, language="markdown")
+                    st.caption("Fallback from grounding document - template from book grounding.")
 
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
