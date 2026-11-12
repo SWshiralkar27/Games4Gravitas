@@ -132,16 +132,19 @@ def _fetch_youtube_transcript(url, max_chars=6000):
         return "", f"transcript-failed: {str(e)[:80]}"
 
 def _is_commentable(url, html_text, platform):
-    """Checks if a page or video allows commenting based on text indicators and DOM structure."""
+    """Checks if a page or video allows commenting. Fail-closed for Web: Web must prove a comment thread, otherwise weed out."""
     u = (url or "").lower()
     html_low = (html_text or "").lower()
+    plat = (platform or "").lower()
 
-    # 0. Static Blog / Website Check (Blogs do not have interactive comment threads for social marketing)
-    if platform == "web - blog" or "/blog/" in u or "whatfix.com" in u:
-        return False, "WEED OUT - Static corporate blog / non-interactive web page"
+    # 0. Social platforms are commentable by definition, pass
+    if any(s in plat for s in ["linkedin", "threads", "facebook", "instagram"]) or "linkedin.com" in u or "threads.net" in u or "threads.com" in u:
+        return True, "Social platform commentable"
+    if "x.com" in u or "twitter.com" in u or plat == "x":
+        return True, "X commentable"
 
     # 1. YouTube check
-    if "youtube" in platform or "youtube.com" in u or "youtu.be" in u:
+    if "youtube" in plat or "youtube.com" in u or "youtu.be" in u:
         if "comments are turned off" in html_low or "comments have been turned off" in html_low:
             return False, "WEED OUT - YouTube comments are disabled"
         return True, "YouTube commentable"
@@ -152,18 +155,35 @@ def _is_commentable(url, html_text, platform):
             return False, "WEED OUT - Reddit thread is locked or archived"
         return True, "Reddit commentable"
 
-    # 3. General Blog / Web comment check
+    # 3. Web / Blog / Medium / pure website - fail-closed, must prove a comment thread
+    # Pure websites like shrm.org, seniorexecutive.com have no comment form, so they must be weeded out.
+    # Only keep Web if HTML actually contains a comment thread indicator.
     closed_phrases = [
-        "comments are closed", 
-        "commenting has been closed", 
-        "comments are turned off", 
+        "comments are closed",
+        "commenting has been closed",
+        "comments are turned off",
         "closed to comments",
         "thread is archived"
     ]
     if any(phrase in html_low for phrase in closed_phrases):
         return False, "WEED OUT - Comments are explicitly closed on this page"
 
-    return True, "Passed comment check"
+    # Strong comment thread indicators only, not just the word comment in footer
+    comment_indicators = [
+        'id="comments"',
+        'id="comment-form"',
+        'class="comment-form"',
+        "disqus_thread",
+        "disqus.com",
+        "comment-form",
+        "leave a reply",
+        "join the discussion",
+        "add a comment"
+    ]
+    if any(ind in html_low for ind in comment_indicators):
+        return True, "Web commentable - comment thread found"
+
+    return False, "WEED OUT - Pure website, no comment thread found"
 
 def deep_fetch(post):
     """Fetch body and raw html for one post. Returns (deep_text, raw_html, deep_source, deep_status). Never raises."""
