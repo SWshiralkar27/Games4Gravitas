@@ -2,7 +2,9 @@
 # Root: gemini_client.py
 # FIX: 503 UNAVAILABLE (model overloaded) is NOT quota. Do NOT mark quota exhausted, do NOT abort whole Assess.
 # 429 RESOURCE_EXHAUSTED is quota. Mark exhausted, show reset time.
-import re, time
+# 2026-11-12: FIX - Added missing parse_gemini_json(). Reason: generator.py imports it, but it did not exist,
+# so import failed silently, parsed stayed None, and raw JSON {"recommended":...} was shown as draft.
+import re, time, json
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
 
 try:
@@ -34,6 +36,43 @@ def _normalize_model(model):
     if "3.8-flash" in m: return "gemini-3.8-flash"
     if "3-flash-preview" in m: return "gemini-3-flash-preview"
     return m
+
+def parse_gemini_json(raw):
+    # 2026-11-12: Added - was missing, caused raw JSON to show in UI.
+    # Handles: dict passthrough, ```json fences, leading text ("Here is your draft: {...}"), trailing text, malformed JSON with recommended field.
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    # Strip markdown fences
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
+    text = re.sub(r"\s*```$", "", text)
+    # Try direct parse
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    # Fallback: extract first {...} block
+    try:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            data = json.loads(text[start:end+1])
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    # Last resort: extract "recommended" via regex
+    try:
+        m = re.search(r'"recommended"\s*:\s*"(.*?)"\s*,\s*"alternatives"', text, flags=re.S)
+        if m:
+            return {"recommended": m.group(1), "alternatives": []}
+    except Exception:
+        pass
+    return None
 
 class GeminiClient:
     def __init__(self, api_key=None, model="gemini-3.8-flash"):
