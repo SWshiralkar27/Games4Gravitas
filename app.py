@@ -1,5 +1,6 @@
-# app.py - v4.9.3.5 - Compact sidebar + copyable discovery error + Discovery diagnostic + Stage 5C Groq only
+# app.py - v4.9.3.6 - Compact sidebar + copyable discovery error + Discovery diagnostic + Stage 5C Groq only + Assess Groq fix
 # Root: app.py
+# 2026-11-12: v4.9.3.6 - Fix Assess Groq skipped + Assess JSON parse + Draft duplicate header + Option B note + Quota reboot reset + Backward compat
 import os, json, re
 
 import streamlit as st
@@ -80,7 +81,7 @@ except Exception:
     def select_for_gemini(posts): return (posts or [])[:12]
     def template_draft(p, a=None): return format_draft("Template draft unavailable.")
 
-for k, v in [("discovered", []), ("assessed", []), ("last_run_log", []), ("quota_hit", False)]:
+for k, v in [("discovered", []), ("assessed", []), ("last_run_log", []), ("quota_hit", False), ("discovery_raw_links", [])]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -246,9 +247,10 @@ with st.sidebar.expander("Quota details + AI Studio sync"):
     st.sidebar.write(f"Resets: {u['reset_label']}")
     st.sidebar.write(f"Assess needs {QUOTA_ASSESS_NEEDS} | Draft {QUOTA_DRAFT_NEEDS} | Test {QUOTA_TEST_NEEDS}")
     manual = st.sidebar.number_input("Already used in AI Studio", min_value=0, max_value=1000, step=1, key="quota_manual_input_v472")
+    # 2026-11-12: Fix - don't reset quota to 0 on reboot. First run: record manual as applied WITHOUT calling set_manual_used.
     if "quota_manual_applied_v472" not in st.session_state:
-        st.session_state.quota_manual_applied_v472 = -1
-    if manual != st.session_state.quota_manual_applied_v472:
+        st.session_state.quota_manual_applied_v472 = int(manual)
+    elif manual != st.session_state.quota_manual_applied_v472:
         try:
             set_manual_used(GEMINI_MODEL, int(manual))
             st.session_state.quota_manual_applied_v472 = int(manual)
@@ -432,8 +434,11 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
             if id(p) in gemini_ids and gclient is not None and not quota_hit:
                 try:
                     data = gclient.generate(f"Assess this post for Leadership+AI digest. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"book theme or other\",\"sensitive\":true/false,\"is_breaking\":true/false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:800]}")
-                    _t = re.sub(r"^```(?:json)?\s*", "", data.strip()); _t = re.sub(r"\s*```$", "", _t)
-                    d = json.loads(_t)
+                    # 2026-11-12: Extract JSON object - robust to reasoning / markdown fences before/after JSON
+                    _m = re.search(r"\{.*\}", data, re.DOTALL)
+                    if not _m:
+                        raise ValueError(f"Gemini Assess no JSON in: {str(data)[:200]}")
+                    d = json.loads(_m.group(0))
                     relevance = int(d.get("relevance", 50)); conversation = int(d.get("conversation", 50)); recency = int(d.get("recency", 70))
                     promo = round(relevance*0.30 + conversation*0.35 + recency*0.15 + 20)
                     opp = round((relevance*0.40 + conversation*0.35 + recency*0.25)/10, 1)
@@ -443,15 +448,21 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                     continue
                 except GeminiQuotaExceeded:
                     quota_hit = True; gclient = None
-                except Exception:
+                except Exception as _ge_assess:
+                    _log(f"Gemini Assess failed for {str(p.get('title',''))[:60]}: {str(_ge_assess)[:200]}")
                     pass
 
             _groq_done = False
-            if groq_client_for_assess is not None and (quota_hit or id(p) not in gemini_ids or gclient is None):
+            # 2026-11-12: Fix - if we reach here, Gemini either wasn't assigned or failed, Groq should ALWAYS try.
+            # Old condition (quota_hit or not in gemini_ids or gclient is None) skipped Groq when Gemini failed with non-quota error (503 / bad JSON).
+            if groq_client_for_assess is not None:
                 try:
-                    _gdata = groq_client_for_assess.generate(f"Assess this post. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"other\",\"sensitive\":false,\"is_breaking\":false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]}")
-                    _t2 = re.sub(r"^```(?:json)?\s*", "", _gdata.strip()); _t2 = re.sub(r"\s*```$", "", _t2)
-                    _d2 = json.loads(_t2)
+                    _gdata = groq_client_for_assess.generate(f"Assess this post. Return ONLY valid JSON: {{\"relevance\":0-100,\"conversation\":0-100,\"recency\":0-100,\"theme\":\"other\",\"sensitive\":false,\"is_breaking\":false,\"reason\":\"short\"}}. Title: {p.get('title','')[:500]} Snippet: {p.get('snippet','')[:800]}")
+                    # 2026-11-12: Extract JSON object, don't json.loads whole reply - gpt-oss-20b adds reasoning text before JSON
+                    _m2 = re.search(r"\{.*\}", _gdata, re.DOTALL)
+                    if not _m2:
+                        raise ValueError(f"Groq Assess no JSON in: {str(_gdata)[:200]}")
+                    _d2 = json.loads(_m2.group(0))
                     _rel = int(_d2.get("relevance", 50)); _conv = int(_d2.get("conversation", 50)); _rec = int(_d2.get("recency", 70))
                     _promo = round(_rel*0.30 + _conv*0.35 + _rec*0.15 + 20)
                     _opp = round((_rel*0.40 + _conv*0.35 + _rec*0.25)/10, 1)
@@ -459,7 +470,8 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                     assessed.append({**p, "decision": _dec, "promo": _promo, "opp": _opp, "theme": _d2.get("theme", "other"), "reason": "Groq Assess"})
                     _groq_done = True
                     continue
-                except Exception:
+                except Exception as _ge2:
+                    _log(f"Groq Assess failed for {str(p.get('title',''))[:60]}: {str(_ge2)[:200]}")
                     pass
 
             if _groq_done: continue
@@ -527,18 +539,37 @@ if st.session_state.assessed:
                         post.update(_result)
                 # 2026-11-11: Fix - show draft, do NOT st.rerun() immediately.
                 # Reason: old st.rerun() hid the draft, button looked like it did nothing.
-                # 2026-11-11: Fix - show formatted drafts + Copy boxes for both engines, + fallback label.
-                # Reason: old code used st.write only, no copy, no formatted display.
-                _is_fallback = "This raises a real question" in (post.get("comment", "") or "")
                 _u = get_usage(GEMINI_MODEL)
-                _is_groq_a = _u["remaining"] <= 0 and not _is_fallback
-                st.subheader("Option A - Fallback from grounding (formatted)" if _is_fallback else ("Option A - Groq fallback (Gemini quota out, formatted)" if _is_groq_a else "Option A - Gemini draft (formatted)"))
                 # 2026-11-12: 3-slot UI - Gemini / Groq reviewed-or-authored / Heuristic fallback
+                # 2026-11-12: Fix - removed duplicate Option A header above (was showing 2x Option A)
                 _gem = post.get("gemini_comment", "") or (post.get("comment", "") if post.get("draft_source") == "gemini" else "")
                 _groq = post.get("groq_comment", "") or ""
                 _fall = post.get("fallback_comment", "") or (post.get("comment", "") if post.get("draft_source") == "fallback" else "")
                 _role = post.get("groq_role", "") or post.get("groq_verdict", "")
-                _src = post.get("draft_source", "")
+                _src = post.get("draft_source", "") or ""
+                # 2026-11-12: Backward compat - old generator.py only sets comment + groq_comment, no draft_source/gemini_comment/fallback_comment
+                # Without this, old generator shows empty Option A/B even though comment exists.
+                if not _src and post.get("comment"):
+                    _c = post.get("comment", "") or ""
+                    if _groq:
+                        _src = "gemini"
+                        _gem = _c
+                    elif "This raises a real question" in _c:
+                        _src = "fallback"
+                        _fall = _c
+                    elif _u["remaining"] <= 0:
+                        # Gemini quota out, comment is likely Groq authored
+                        _src = "groq_generator"
+                        _groq = _c
+                        _role = "generator"
+                        _gem = ""
+                    else:
+                        _src = "gemini"
+                        _gem = _c
+                # If generator set draft_source=groq_generator but left groq_comment empty (old Stage 6A), use comment as Groq authored
+                if _src == "groq_generator" and not _groq and post.get("comment"):
+                    _groq = post.get("comment", "") or ""
+                    _role = "generator"
 
                 st.subheader("1. Option A - Gemini generated draft")
                 if _gem:
@@ -553,7 +584,9 @@ if st.session_state.assessed:
                     st.code(_groq, language="markdown")
                     st.caption(f"Groq note: {post.get('groq_note') or ''} | Verdict: {post.get('groq_verdict') or ''} | Role: {_role}")
                 else:
-                    st.caption("Groq review / authored not available - Groq failed / no key / quota.")
+                    # 2026-11-12: Fix - show real groq_note instead of generic "failed / no key / quota"
+                    _note = post.get("groq_note") or post.get("grok_note") or ""
+                    st.caption(f"Groq review / authored not available. Note: {_note} | Source: {_src} | Role: {_role}")
 
                 if _src == "fallback" and _fall:
                     st.subheader("3. Fallback - Heuristic draft from grounding (both engines failed)")
