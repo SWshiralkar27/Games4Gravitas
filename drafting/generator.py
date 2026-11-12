@@ -29,8 +29,14 @@ def _sanitize_generic_opener(text: str) -> str:
             break
     return cleaned
 
-def build_fallback_comment(item, plain: bool) -> str:
-    book = BOOK_NAME_YOUTUBE if plain else f"[{BOOK_TITLE}]({BOOK_LINK})"
+def build_fallback_comment(item, plain: bool, variant: int = 0) -> str:
+    # 2026-11-12: Stage 6A - Use book_mention_form (bold-only), NOT [BOOK_TITLE](BOOK_LINK).
+    # Reason: Amazon link was leaking into Copy box for fallback drafts.
+    # variant param added with default 0, so old calls build_fallback_comment(item, plain) still work.
+    try:
+        book = book_mention_form(variant, plain)
+    except Exception:
+        book = BOOK_NAME_YOUTUBE if plain else BOOK_TITLE
     item_title = item.get("title") if isinstance(item, dict) else getattr(item, "title", "")
     topic = item_title.split("|")[0].strip() or "this discussion"
     
@@ -166,12 +172,51 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         d = format_for_platform(d, item_platform)
         kept.append((d, "Insight Add"))
 
+    # 2026-11-12: Stage 6A - Groq as INDEPENDENT GENERATOR when Gemini produced nothing. Same prompt, fresh generation, NOT review.
+    groq_used_as_generator = False
+    if not kept and groq_client is not None:
+        try:
+            groq_raw = groq_client.generate(prompt, max_tokens=2600)
+            groq_text = ""
+            if groq_raw:
+                # REVIEW FIX: Groq may return JSON (prompt asks for JSON) - try parse first, else treat as raw text.
+                try:
+                    from gemini_client import parse_gemini_json as _pg
+                    _gparsed = _pg(groq_raw)
+                    if _gparsed and isinstance(_gparsed, dict) and _gparsed.get("recommended"):
+                        groq_text = str(_gparsed.get("recommended", "")).strip()
+                    elif isinstance(groq_raw, str) and len(groq_raw.strip()) > 30:
+                        groq_text = groq_raw.strip()
+                    elif isinstance(groq_raw, dict):
+                        groq_text = str(groq_raw.get("text") or groq_raw.get("recommended", "")).strip()
+                except Exception:
+                    if isinstance(groq_raw, str):
+                        groq_text = groq_raw.strip()
+            if groq_text and len(groq_text) > 30:
+                d = clean_text(groq_text)
+                d = _sanitize_generic_opener(d)
+                if _decision == "A_PROMOTE":
+                    plain = item_platform in PLAIN_TEXT_PLATFORMS
+                    form = book_mention_form(variant, plain)
+                    if BOOK_TITLE.lower() not in d.lower():
+                        d = f"{d} For a structured playbook on this, see **{BOOK_TITLE}**."
+                    d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
+                    d = d.replace("BOOKPLACEHOLDER", form)
+                d = format_for_platform(d, item_platform)
+                kept.append((d, "Insight Add"))
+                groq_used_as_generator = True
+                log.info("Groq generated fresh (Gemini failed) - Stage 6A")
+        except Exception as _ge:
+            log.warning("Groq generation (Stage 6A) failed: %s. Using fallback template.", _ge)
+
+    is_fallback = False
     if not kept:
         plain = item_platform in PLAIN_TEXT_PLATFORMS
-        fallback_text = build_fallback_comment(item, plain)
+        fallback_text = build_fallback_comment(item, plain, variant)
         fallback_text = _sanitize_generic_opener(fallback_text)
         fallback_text = format_for_platform(fallback_text, item_platform)
         kept.append((fallback_text, "Insight Add"))
+        is_fallback = True
 
     if kept:
         comment_val, archetype_val = kept[0][0], kept[0][1]
@@ -186,7 +231,48 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
             item.draft_archetype = archetype_val
             item.alternatives = alternatives_val
 
-        if groq_client is not None:
+        # 2026-11-12: Stage 6A - Option B ONLY for real drafts. Never review a template, never self-review Groq output.
+        if groq_used_as_generator:
+            _note = "Groq used as generator (Gemini failed) - no self-review"
+            if isinstance(item, dict):
+                item["groq_available"] = False
+                item["grok_available"] = False
+                item["groq_comment"] = ""
+                item["grok_comment"] = ""
+                item["groq_note"] = _note
+                item["grok_note"] = _note
+                item["groq_verdict"] = "generator"
+                item["grok_verdict"] = "generator"
+            else:
+                item.groq_available = False
+                item.grok_available = False
+                item.groq_comment = ""
+                item.grok_comment = ""
+                item.groq_note = _note
+                item.grok_note = _note
+                item.groq_verdict = "generator"
+                item.grok_verdict = "generator"
+        elif is_fallback:
+            _note = "Fallback - Groq review skipped (no real draft to review)"
+            if isinstance(item, dict):
+                item["groq_available"] = False
+                item["grok_available"] = False
+                item["groq_comment"] = ""
+                item["grok_comment"] = ""
+                item["groq_note"] = _note
+                item["grok_note"] = _note
+                item["groq_verdict"] = "fallback"
+                item["grok_verdict"] = "fallback"
+            else:
+                item.groq_available = False
+                item.grok_available = False
+                item.groq_comment = ""
+                item.grok_comment = ""
+                item.groq_note = _note
+                item.grok_note = _note
+                item.groq_verdict = "fallback"
+                item.grok_verdict = "fallback"
+        elif groq_client is not None:
             try:
                 reviewed = groq_client.review_draft(item, comment_val, archetype_val)
                 if reviewed:
