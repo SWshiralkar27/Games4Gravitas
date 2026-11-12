@@ -507,6 +507,7 @@ if st.session_state.assessed:
         title = str(post.get("title","Untitled"))[:120]
         with st.expander(f"{post.get('platform','Web')} - {title} | Suggested: {post.get('decision')} | Promo: {post.get('promo')}"):
             st.markdown(f"Link: [{str(post.get('link',''))[:80]}]({post.get('link','')})")
+            st.caption(f"Opp: {post.get('opp', 'unknown')} | Scored by: {post.get('scored_by', post.get('_scored_by', 'unknown'))} | Reason: {post.get('reason', post.get('_deep_reason', ''))}")            
             if st.button("Generate template draft only (no AI, instant)", key=f"draft_{idx}_template"):
                 _tmpl = format_draft(template_draft(post))
                 st.write(_tmpl)
