@@ -218,6 +218,27 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         kept.append((fallback_text, "Insight Add"))
         is_fallback = True
 
+    # 2026-11-12: 3-slot tracking - keep Gemini / Groq / fallback separate so app.py can show all 3
+    _gemini_val = ""
+    _groq_authored_val = ""
+    _fallback_val = ""
+    if is_fallback:
+        _fallback_val = kept[0][0]
+    elif groq_used_as_generator:
+        _groq_authored_val = kept[0][0]
+    else:
+        _gemini_val = kept[0][0]
+    if isinstance(item, dict):
+        item["gemini_comment"] = _gemini_val
+        item["fallback_comment"] = _fallback_val
+        item["draft_source"] = "fallback" if is_fallback else ("groq_generator" if groq_used_as_generator else "gemini")
+        item["groq_role"] = "generator" if groq_used_as_generator else ""
+    else:
+        item.gemini_comment = _gemini_val
+        item.fallback_comment = _fallback_val
+        item.draft_source = "fallback" if is_fallback else ("groq_generator" if groq_used_as_generator else "gemini")
+        item.groq_role = "generator" if groq_used_as_generator else ""
+
     if kept:
         comment_val, archetype_val = kept[0][0], kept[0][1]
         alternatives_val = [k[0] for k in kept[1:3]]
@@ -235,10 +256,10 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         if groq_used_as_generator:
             _note = "Groq used as generator (Gemini failed) - no self-review"
             if isinstance(item, dict):
-                item["groq_available"] = False
-                item["grok_available"] = False
-                item["groq_comment"] = ""
-                item["grok_comment"] = ""
+                item["groq_available"] = True
+                item["grok_available"] = True
+                item["groq_comment"] = _groq_authored_val
+                item["grok_comment"] = _groq_authored_val
                 item["groq_note"] = _note
                 item["grok_note"] = _note
                 item["groq_verdict"] = "generator"
@@ -293,21 +314,28 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
                         if isinstance(item, dict):
                             item["groq_comment"] = groq_comment_val
                             item["grok_comment"] = groq_comment_val
+                            item["groq_role"] = "review"
+                            item["grok_role"] = "review"                            
                             item["groq_note"] = groq_note_val
                             item["grok_note"] = groq_note_val
                             item["groq_verdict"] = groq_verdict_val
                             item["grok_verdict"] = groq_verdict_val
                             item["groq_available"] = True
                             item["grok_available"] = True
+                            item["groq_role"] = "review"
+                            item["grok_role"] = "review"                            
                         else:
                             item.groq_comment = groq_comment_val
                             item.grok_comment = groq_comment_val
+                         
                             item.groq_note = groq_note_val
                             item.grok_note = groq_note_val
                             item.groq_verdict = groq_verdict_val
                             item.grok_verdict = groq_verdict_val
                             item.groq_available = True
                             item.grok_available = True
+                            item["groq_role"] = "review"
+                            item["grok_role"] = "review"                            
             except Exception as exc:
                 log.warning("Groq review skipped: %s", exc)
                 if isinstance(item, dict):
