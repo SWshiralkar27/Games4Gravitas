@@ -1,26 +1,8 @@
 #1 CEA prompt builder + #2 idea-seeding + theme rotation from v2.2.
 from __future__ import annotations
 import os
-from config import BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, IDEA_PHRASES, PLAIN_TEXT_PLATFORMS
+from config import BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, IDEA_PHRASES, PLAIN_TEXT_PLATFORMS, BOOK_THEMES
 from drafting.formatting import word_range, book_mention_form
-
-# ACT-1: Prefer BOOK_THEMES from config (locked 5 themes) if present, else use local fallback.
-# Safe import: if config does not have BOOK_THEMES yet, app keeps working with fallback.
-try:
-    from config import BOOK_THEMES as _CONFIG_BOOK_THEMES
-except Exception:
-    _CONFIG_BOOK_THEMES = None
-
-_FALLBACK_BOOK_THEMES = [
-    {"name": "Centaur leadership", "detail": "Humans and AI together out-think either one alone."},
-    {"name": "Purposeful rehearsal", "detail": "Structured games let leaders rehearse high-stakes decisions safely."},
-    {"name": "Playbook over theory", "detail": "Modular exercises that leaders actively apply, not just read about."},
-    {"name": "Non-automatable skills", "detail": "Judgment, intuition, empathy, ethics and creativity stay human."},
-    {"name": "Hybrid Intelligence Era", "detail": "AI is a strategic collaborator; humans and AI co-evolve."},
-    {"name": "Structured human-AI teaming", "detail": "The 7-Phase Model for building blended human-AI teams."},
-]
-
-BOOK_THEMES = _CONFIG_BOOK_THEMES if isinstance(_CONFIG_BOOK_THEMES, list) and len(_CONFIG_BOOK_THEMES) > 0 else _FALLBACK_BOOK_THEMES
 
 def _format_themes(themes) -> str:
     lines = []
