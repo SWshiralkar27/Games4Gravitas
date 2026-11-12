@@ -64,7 +64,9 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
     else:
         _decision_str = str(_decision_raw or "")
     _decision = _decision_str
-    if _decision not in ("A_PROMOTE", "B_ENGAGE"):
+    # 2026-11-12: FIX - Don't return early for D_SKIP. Button is "Generate draft anyway", so it must generate even for D_SKIP.
+    # Only return if there is no decision at all. D_SKIP drafts get no book mention (only A_PROMOTE does).
+    if not _decision:
         return
     
     if isinstance(item, dict):
@@ -77,6 +79,10 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         item["groq_note"] = ""
         item["grok_verdict"] = ""
         item["groq_verdict"] = ""
+        item["gemini_comment"] = ""
+        item["fallback_comment"] = ""
+        item["draft_source"] = ""
+        item["groq_role"] = ""
     else:
         item.draft_variant = variant
         item.grok_available = False
@@ -87,6 +93,10 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         item.groq_note = ""
         item.grok_verdict = ""
         item.groq_verdict = ""
+        item.gemini_comment = ""
+        item.fallback_comment = ""
+        item.draft_source = ""
+        item.groq_role = ""
         
     prompt, _ = build_draft_prompt(item, variant)
     raw = None
@@ -129,12 +139,26 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         except Exception:
             pass
         
-        if not parsed and isinstance(raw, str) and len(raw.strip()) > 30:
+        # 2026-11-12: FIX - Don't treat Gemini error text as a draft. Old code: any string >30 chars became fallback_raw_text,
+        # so "429 Quota exceeded..." became a "Gemini draft", kept became non-empty, and Groq generation was never attempted (if not kept = False).
+        # Now: if raw looks like an error / quota message, ignore it so Groq generate runs.
+        _raw_str = raw.strip() if isinstance(raw, str) else ""
+        _is_error_text = False
+        if _raw_str:
+            _low = _raw_str.lower()
+            if ("quota" in _low and "exceed" in _low) or "429" in _raw_str or "503" in _raw_str or _low.startswith("error") or "api key not valid" in _low or "rate limit" in _low:
+                # If it also contains JSON with recommended, parse above already handled it. Otherwise it's error text.
+                if not parsed:
+                    _is_error_text = True
+        if not parsed and not _is_error_text and isinstance(raw, str) and len(raw.strip()) > 30:
             fallback_raw_text = raw.strip()
         elif isinstance(raw, dict):
             txt = raw.get("text") or raw.get("recommended", "")
             if txt and len(str(txt)) > 30:
-                fallback_raw_text = str(txt).strip()
+                # Same error-text guard for dict text
+                _tlow = str(txt).lower()
+                if not (("quota" in _tlow and "exceed" in _tlow) or "429" in str(txt)):
+                    fallback_raw_text = str(txt).strip()
 
     kept = []
     item_platform = item.get("platform") if isinstance(item, dict) else getattr(item, "platform", "")
@@ -173,46 +197,55 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         kept.append((d, "Insight Add"))
 
     # 2026-11-12: Stage 6A - Groq as INDEPENDENT GENERATOR when Gemini produced nothing. Same prompt, fresh generation, NOT review.
+    # 2026-11-12: FIX - Track groq_gen_error separately. Old code set groq_note in except, then is_fallback branch overwrote it with
+    # "Fallback - Groq review skipped", hiding the real Groq error. Now groq_gen_error is preserved and shown in fallback note.
     groq_used_as_generator = False
-    if not kept and groq_client is not None:
-        try:
-            groq_raw = groq_client.generate(prompt, max_tokens=900)
-            groq_text = ""
-            if groq_raw:
-                # REVIEW FIX: Groq may return JSON (prompt asks for JSON) - try parse first, else treat as raw text.
-                try:
-                    from gemini_client import parse_gemini_json as _pg
-                    _gparsed = _pg(groq_raw)
-                    if _gparsed and isinstance(_gparsed, dict) and _gparsed.get("recommended"):
-                        groq_text = str(_gparsed.get("recommended", "")).strip()
-                    elif isinstance(groq_raw, str) and len(groq_raw.strip()) > 30:
-                        groq_text = groq_raw.strip()
-                    elif isinstance(groq_raw, dict):
-                        groq_text = str(groq_raw.get("text") or groq_raw.get("recommended", "")).strip()
-                except Exception:
-                    if isinstance(groq_raw, str):
-                        groq_text = groq_raw.strip()
-            if groq_text and len(groq_text) > 30:
-                d = clean_text(groq_text)
-                d = _sanitize_generic_opener(d)
-                if _decision == "A_PROMOTE":
-                    plain = item_platform in PLAIN_TEXT_PLATFORMS
-                    form = book_mention_form(variant, plain)
-                    if BOOK_TITLE.lower() not in d.lower():
-                        d = f"{d} For a structured playbook on this, see **{BOOK_TITLE}**."
-                    d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
-                    d = d.replace("BOOKPLACEHOLDER", form)
-                d = format_for_platform(d, item_platform)
-                kept.append((d, "Insight Add"))
-                groq_used_as_generator = True
-                log.info("Groq generated fresh (Gemini failed) - Stage 6A")
-        except Exception as _ge:
-            log.warning("Groq generation (Stage 6A) failed: %s. Using fallback template.", _ge)
-            # Surface real error in UI instead of generic "not available"
-            _err = str(_ge)[:200]
-            if isinstance(item, dict):
-                item["groq_note"] = f"Groq draft failed: {_err}"
-                item["grok_note"] = f"Groq draft failed: {_err}"
+    groq_gen_error = ""
+    if not kept:
+        if groq_client is None:
+            groq_gen_error = "groq_client is None (app.py passed None / GroqClient not ready)"
+            log.warning("Groq generation skipped: %s", groq_gen_error)
+        else:
+            try:
+                groq_raw = groq_client.generate(prompt, max_tokens=900)
+                groq_text = ""
+                if groq_raw:
+                    # REVIEW FIX: Groq may return JSON (prompt asks for JSON) - try parse first, else treat as raw text.
+                    try:
+                        from gemini_client import parse_gemini_json as _pg
+                        _gparsed = _pg(groq_raw)
+                        if _gparsed and isinstance(_gparsed, dict) and _gparsed.get("recommended"):
+                            groq_text = str(_gparsed.get("recommended", "")).strip()
+                        elif isinstance(groq_raw, str) and len(groq_raw.strip()) > 30:
+                            groq_text = groq_raw.strip()
+                        elif isinstance(groq_raw, dict):
+                            groq_text = str(groq_raw.get("text") or groq_raw.get("recommended", "")).strip()
+                    except Exception:
+                        if isinstance(groq_raw, str):
+                            groq_text = groq_raw.strip()
+                # 2026-11-12: FIX - Record empty/short return as error. Old code left groq_text="" with no error, fell to fallback silently.
+                if not groq_text:
+                    groq_gen_error = f"Groq returned empty/short (raw={repr(groq_raw)[:200]})"
+                elif len(groq_text) <= 30:
+                    groq_gen_error = f"Groq text too short ({len(groq_text)} chars): {groq_text[:100]}"
+                else:
+                    d = clean_text(groq_text)
+                    d = _sanitize_generic_opener(d)
+                    if _decision == "A_PROMOTE":
+                        plain = item_platform in PLAIN_TEXT_PLATFORMS
+                        form = book_mention_form(variant, plain)
+                        if BOOK_TITLE.lower() not in d.lower():
+                            d = f"{d} For a structured playbook on this, see **{BOOK_TITLE}**."
+                        d = re.sub(r"\[\*\*Games for Gravitas\*\*\]\([^)]+\)|\"Games for Gravitas\"|Games for Gravitas", "BOOKPLACEHOLDER", d, count=1)
+                        d = d.replace("BOOKPLACEHOLDER", form)
+                    d = format_for_platform(d, item_platform)
+                    kept.append((d, "Insight Add"))
+                    groq_used_as_generator = True
+                    log.info("Groq generated fresh (Gemini failed) - Stage 6A")
+            except Exception as _ge:
+                groq_gen_error = str(_ge)[:300]
+                log.warning("Groq generation (Stage 6A) failed: %s. Using fallback template.", _ge)
+                # Don't set groq_note here - it will be set in the final assignment below from groq_gen_error, so fallback can't overwrite it.
     is_fallback = False
     if not kept:
         plain = item_platform in PLAIN_TEXT_PLATFORMS
@@ -236,12 +269,12 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
         item["gemini_comment"] = _gemini_val
         item["fallback_comment"] = _fallback_val
         item["draft_source"] = "fallback" if is_fallback else ("groq_generator" if groq_used_as_generator else "gemini")
-        item["groq_role"] = "generator" if groq_used_as_generator else ""
+        item["groq_role"] = "generator" if groq_used_as_generator else ("fallback" if is_fallback else "")
     else:
         item.gemini_comment = _gemini_val
         item.fallback_comment = _fallback_val
         item.draft_source = "fallback" if is_fallback else ("groq_generator" if groq_used_as_generator else "gemini")
-        item.groq_role = "generator" if groq_used_as_generator else ""
+        item.groq_role = "generator" if groq_used_as_generator else ("fallback" if is_fallback else "")
 
     if kept:
         comment_val, archetype_val = kept[0][0], kept[0][1]
@@ -269,16 +302,21 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
                 item["groq_verdict"] = "generator"
                 item["grok_verdict"] = "generator"
             else:
-                item.groq_available = False
-                item.grok_available = False
-                item.groq_comment = ""
-                item.grok_comment = ""
+                # 2026-11-12: FIX - Old code set available=False and comment="" here even though Groq succeeded, hiding the draft for object items.
+                item.groq_available = True
+                item.grok_available = True
+                item.groq_comment = _groq_authored_val
+                item.grok_comment = _groq_authored_val
                 item.groq_note = _note
                 item.grok_note = _note
                 item.groq_verdict = "generator"
                 item.grok_verdict = "generator"
         elif is_fallback:
-            _note = "Fallback - Groq review skipped (no real draft to review)"
+            # 2026-11-12: FIX - Don't overwrite Groq generation error with generic "review skipped". Show why Groq generate failed.
+            if groq_gen_error:
+                _note = f"Fallback - Groq generation failed: {groq_gen_error}"
+            else:
+                _note = "Fallback - Groq generation not attempted (groq_client None)"
             if isinstance(item, dict):
                 item["groq_available"] = False
                 item["grok_available"] = False
@@ -318,8 +356,6 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
                         if isinstance(item, dict):
                             item["groq_comment"] = groq_comment_val
                             item["grok_comment"] = groq_comment_val
-                            item["groq_role"] = "review"
-                            item["grok_role"] = "review"                            
                             item["groq_note"] = groq_note_val
                             item["grok_note"] = groq_note_val
                             item["groq_verdict"] = groq_verdict_val
@@ -327,24 +363,45 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
                             item["groq_available"] = True
                             item["grok_available"] = True
                             item["groq_role"] = "review"
-                            item["grok_role"] = "review"                            
+                            item["grok_role"] = "review"
                         else:
                             item.groq_comment = groq_comment_val
                             item.grok_comment = groq_comment_val
-                         
                             item.groq_note = groq_note_val
                             item.grok_note = groq_note_val
                             item.groq_verdict = groq_verdict_val
                             item.grok_verdict = groq_verdict_val
                             item.groq_available = True
                             item.grok_available = True
-                            item["groq_role"] = "review"
-                            item["grok_role"] = "review"                            
+                            # 2026-11-12: FIX - Old code used item["groq_role"] on an object here, raising TypeError and hiding a successful review.
+                            item.groq_role = "review"
+                            item.grok_role = "review"
+                    else:
+                        # Review returned empty - record it, don't leave groq_note empty
+                        _empty_note = "Groq review returned empty reviewed_draft"
+                        if isinstance(item, dict):
+                            item["groq_note"] = _empty_note
+                            item["grok_note"] = _empty_note
+                        else:
+                            item.groq_note = _empty_note
+                            item.grok_note = _empty_note
+                else:
+                    _none_note = "Groq review returned None"
+                    if isinstance(item, dict):
+                        item["groq_note"] = _none_note
+                        item["grok_note"] = _none_note
+                    else:
+                        item.groq_note = _none_note
+                        item.grok_note = _none_note
             except Exception as exc:
                 log.warning("Groq review skipped: %s", exc)
                 if isinstance(item, dict):
                     item["groq_available"] = False
                     item["grok_available"] = False
+                    item["groq_note"] = f"Groq review failed: {str(exc)[:200]}"
+                    item["grok_note"] = f"Groq review failed: {str(exc)[:200]}"
                 else:
                     item.groq_available = False
                     item.grok_available = False
+                    item.groq_note = f"Groq review failed: {str(exc)[:200]}"
+                    item.grok_note = f"Groq review failed: {str(exc)[:200]}"
