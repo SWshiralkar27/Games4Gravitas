@@ -22,7 +22,7 @@ import re
 from config import (
     A_PROMOTE, B_ENGAGE, BOOK_THEMES, DYNAMIC_THRESHOLD,
     MAX_GEMINI_CALLS_PER_RUN, SATURATION_COMMENTS, SENSITIVE_KEYWORDS,
-    BREAKING_KEYWORDS, SOCIAL_PLATFORMS,
+    BREAKING_KEYWORDS, SOCIAL_PLATFORMS, OPP_PROMOTE, OPP_ENGAGE,
 )
 
 # ACT-3 Step 3b: Locked D1 phrase set, fallback only, not primary. Strong + Medium from locked D1.
@@ -98,16 +98,13 @@ def heuristic_assess(post):
 
     # ACT-3 Step 2: Locked D1 - promote needs promo 70 and opp 6.5, engage needs promo 55 and opp 5.0
     # A_PROMOTE and B_ENGAGE from config are promo thresholds (70, 55). Opp thresholds are locked D1.
-    if promo >= A_PROMOTE and opp >= 6.5:
+    if promo >= A_PROMOTE and opp >= OPP_PROMOTE:
         decision = "A_PROMOTE"
-    elif promo >= B_ENGAGE and opp >= 5.0:
+    elif promo >= B_ENGAGE and opp >= OPP_ENGAGE:
         decision = "B_ENGAGE"
-    elif is_social and promo >= 50 and opp >= 5.0:
+    elif is_social and promo >= 50 and opp >= OPP_ENGAGE:
         decision = "B_ENGAGE"
-    elif is_question and comments <= 30 and promo >= 45 and opp >= 5.0:
-        decision = "B_ENGAGE"
-    elif is_social and promo >= 45:
-        # Novel-term safeguard: social thread with decent promo but opp below 5.0, keep as engage for manual review, not skip
+    elif is_question and comments <= 30 and promo >= 45 and opp >= OPP_ENGAGE:
         decision = "B_ENGAGE"
     else:
         decision = "D_SKIP"
