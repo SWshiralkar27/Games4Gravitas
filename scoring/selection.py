@@ -49,7 +49,9 @@ def heuristic_assess(post):
                 "theme": "other",
                 "reason": "Auto-skipped by upstream filter."}
 
-    is_social = platform in SOCIAL_PLATFORMS
+    # Fix: platform is "LinkedIn - Title", "threads - Title", "X - Title", not exactly "LinkedIn", so use prefix match, not exact equality
+    _plat_low = (platform or "").lower()
+    is_social = any(s.lower() in _plat_low for s in SOCIAL_PLATFORMS) or _plat_low.startswith("linkedin") or _plat_low.startswith("threads") or _plat_low.startswith("x -") or _plat_low.startswith("x ")
 
     # ACT-3 Step 1: BOOK_THEMES is now list of dicts in config, handle dicts and strings, do not crash
     def _book_theme_names():
