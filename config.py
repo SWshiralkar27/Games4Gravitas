@@ -55,6 +55,12 @@ SEARCH_TERMS = [
 
 MAX_POSTS_TO_ASSESS = 30
 MAX_RESULTS_PER_SOURCE = 5
+# Locked D1 thresholds - G-02 single source. selection.py must import these, do not hardcode.
+A_PROMOTE = 70
+B_ENGAGE = 55
+OPP_PROMOTE = 6.5
+OPP_ENGAGE = 5.0
+SATURATION_COMMENTS = 80
 
 # --- Gemini quota limits (Free Tier, from AI Studio Rate Limits page) ---
 # RPD = requests per day, RPM = requests per minute, TPM = tokens per minute
