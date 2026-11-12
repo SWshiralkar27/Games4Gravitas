@@ -176,7 +176,7 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
     groq_used_as_generator = False
     if not kept and groq_client is not None:
         try:
-            groq_raw = groq_client.generate(prompt, max_tokens=2600)
+            groq_raw = groq_client.generate(prompt, max_tokens=900)
             groq_text = ""
             if groq_raw:
                 # REVIEW FIX: Groq may return JSON (prompt asks for JSON) - try parse first, else treat as raw text.
