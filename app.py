@@ -492,7 +492,7 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
 if st.session_state.assessed:
     a_list = st.session_state.assessed
     def _c(d): return sum(1 for x in a_list if x.get("decision")==d)
-    st.subheader(f"{len(a_list)} assessed: {_c('A_PROMOTE')} promote - {_c('B_ENGAGE')} engage - {_c('D_SKIP')} skip")
+    st.subheader(f"{len(a_list)} assessed: {_c('A_PROMOTE')} promote - {_c('B_ENGAGE')} engage - {_c('D_SKIP')} skip - {_c('D_SENSITIVE')} sensitive - {_c('C_WAIT')} wait")
 
 if not _has_assessed:
     st.info("Step 3 - Review drafts: Complete Assess first.")
