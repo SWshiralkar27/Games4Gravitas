@@ -6,10 +6,12 @@ from datetime import datetime
 from enum import Enum
 from config import MAX_CONTEXT_CHARS
 
+
 class Decision(str, Enum):
     A_PROMOTE = "A_PROMOTE"
     B_ENGAGE = "B_ENGAGE"
     C_SENSITIVE = "C_SENSITIVE"
+    D_SENSITIVE = "D_SENSITIVE"
     C_WAIT = "C_WAIT"
     D_SKIP = "D_SKIP"
 
