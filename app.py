@@ -482,7 +482,7 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
 
             if _groq_done: continue
             try:
-                h = heuristic_assess(p)
+                h = assess_heuristic_guarded(p)
             except Exception:
                 h = {"decision": "D_SKIP", "promo": 0, "opp": 0.0, "theme": "other", "reason": "Heuristic failed."}
             assessed.append({**p, **h})
