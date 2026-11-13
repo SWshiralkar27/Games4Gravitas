@@ -64,6 +64,32 @@ def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_clien
     else:
         _decision_str = str(_decision_raw or "")
     _decision = _decision_str
+    # Guardrail - Sensitive must never generate, even if button bypassed.
+    if _decision == "D_SENSITIVE":
+        _blocked = "BLOCKED - sensitive topic. No draft allowed."
+        if isinstance(item, dict):
+            item["comment"] = _blocked
+            item["gemini_comment"] = _blocked
+            item["groq_comment"] = ""
+            item["grok_comment"] = ""
+            item["fallback_comment"] = ""
+            item["draft_source"] = "blocked"
+            item["groq_note"] = _blocked
+            item["grok_note"] = _blocked
+            item["groq_verdict"] = "blocked"
+            item["grok_verdict"] = "blocked"
+        else:
+            item.comment = _blocked
+            item.gemini_comment = _blocked
+            item.groq_comment = ""
+            item.grok_comment = ""
+            item.fallback_comment = ""
+            item.draft_source = "blocked"
+            item.groq_note = _blocked
+            item.grok_note = _blocked
+            item.groq_verdict = "blocked"
+            item.grok_verdict = "blocked"
+        return
     # 2026-11-12: FIX - Don't return early for D_SKIP. Button is "Generate draft anyway", so it must generate even for D_SKIP.
     # Only return if there is no decision at all. D_SKIP drafts get no book mention (only A_PROMOTE does).
     if not _decision:
