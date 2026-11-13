@@ -3,7 +3,7 @@
 # --- Book & Platform Constants ---
 BOOK_TITLE = "Games for Gravitas"
 BOOK_THEMES = [
-    {"name": "Doubling Down on the Non-Automatable Human Edge", "detail": "AI absorbs analytical processing, data crunching, task automation. Advantage is human capabilities algorithms cannot replicate: ethical judgment, empathy, critical thinking, adaptability, creative problem-solving, resilience. 【entity-World Economic Forum¦canonical_name=World Economic Forum】 Future of Jobs confirms these as most sought-after."},
+{"name": "Doubling Down on the Non-Automatable Human Edge", "detail": "AI absorbs analytical processing, data crunching, task automation. Advantage is human capabilities algorithms cannot replicate: ethical judgment, empathy, critical thinking, adaptability, creative problem-solving, resilience. World Economic Forum Future of Jobs confirms these as most sought-after."},
     {"name": "Transitioning from Passive Training to Experiential Fail-Safe Engines", "detail": "Lectures, mandatory reading, static e-learning yield retention 5% to 10%, fail to build adaptive behaviors. Game-based learning sits at base of Learning Pyramid, practice by doing, retention up to 80% to 90% through active participation and peer collaboration. Games create safe-to-fail environments, high-risk experiments, failure without operational fallout, rapid conversion of mistakes into insights."},
     {"name": "Leveraging Facilitation, Replay, and Guided Reflection for Behavioral Transfer", "detail": "Gameplay is only half. Facilitation and debriefing bridge play to on-the-job execution. Video replay lets participants observe strategic missteps and communication breakdowns objectively, without real-time overload. Structured reflection What? So What? Now What? guides commitment to concrete, measurable daily behavioral changes."},
     {"name": "Precision Prioritization of Workforce Transition Challenges", "detail": "Do not deploy gamification randomly. Use Strategic Implementation Framework, 3 tiers: Essential Priorities, highest ROI: team cohesion, digital literacy, cross-functional communication, change resistance, leadership adaptation. Differentiator Priorities: remote onboarding, culture preservation, informal knowledge sharing by blending games into broader programs. Opportunistic Priorities: targeted awareness challenges for compliance, time-zone alignment, wellness. Match specific playbooks to challenge, e.g. Virtual Treasure Hunt for system adoption, Blindfold Game for leadership vision under uncertainty."},
@@ -61,7 +61,19 @@ B_ENGAGE = 55
 OPP_PROMOTE = 6.5
 OPP_ENGAGE = 5.0
 SATURATION_COMMENTS = 80
+# Guardrails - added 2026-11-13, Step 1, additive only. Existing thresholds unchanged.
+PROMOTION_THRESHOLD = 70              # = A_PROMOTE
+PROMOTION_THRESHOLD_OPEN = 45         # question + <=30 comments, matches heuristic question fallback
+ENGAGEMENT_THRESHOLD = 55             # = B_ENGAGE
+MIN_CONTEXT_CHARS = 180               # title + snippet + deep body, 180-char rule
+MAX_COMMENT_COUNT_SATURATION = 80     # = SATURATION_COMMENTS
+MAX_GEMINI_CALLS_PER_RUN = 12         # = QUOTA_ASSESS_NEEDS
+DYNAMIC_THRESHOLD = False             # imported but unused, added so import does not fail
 
+SENSITIVE_KEYWORDS = ["suicide", "self-harm", "sexual assault", "rape", "genocide", "terrorism", "child abuse", "domestic violence", "hate crime"]
+BREAKING_KEYWORDS = ["breaking", "breaking news", "just announced", "developing", "earthquake", "shooting", "attack", "explosion"]
+SOCIAL_PLATFORMS = ["LinkedIn", "X", "Threads", "Facebook", "Instagram", "Reddit"]
+PROMOTE_CAP_KEYWORDS = ["layoff", "layoffs", "fired", "redundancy", "job cuts", "downsizing"]
 # --- Gemini quota limits (Free Tier, from AI Studio Rate Limits page) ---
 # RPD = requests per day, RPM = requests per minute, TPM = tokens per minute
 # Reset = midnight Pacific Time = 1:30 PM IST next day (Nov, PST)
