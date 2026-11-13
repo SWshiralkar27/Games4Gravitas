@@ -33,21 +33,38 @@ def build_fallback_comment(item, plain: bool, variant: int = 0) -> str:
     # 2026-11-12: Stage 6A - Use book_mention_form (bold-only), NOT [BOOK_TITLE](BOOK_LINK).
     # Reason: Amazon link was leaking into Copy box for fallback drafts.
     # variant param added with default 0, so old calls build_fallback_comment(item, plain) still work.
+    # 2026-11-13: Guardrail - book only for A_PROMOTE. Engage / Skip fallback gets no book.
+    _dec_raw = item.get("decision") if isinstance(item, dict) else getattr(item, "decision", None)
+    if hasattr(_dec_raw, "value"):
+        _dec = str(_dec_raw.value)
+    else:
+        _dec = str(_dec_raw or "")
+    _is_promote = (_dec == "A_PROMOTE")
     try:
-        book = book_mention_form(variant, plain)
+        book = book_mention_form(variant, plain) if _is_promote else ""
     except Exception:
-        book = BOOK_NAME_YOUTUBE if plain else BOOK_TITLE
+        book = (BOOK_NAME_YOUTUBE if plain else BOOK_TITLE) if _is_promote else ""
     item_title = item.get("title") if isinstance(item, dict) else getattr(item, "title", "")
     topic = item_title.split("|")[0].strip() or "this discussion"
     
     item_link = item.get("link") if isinstance(item, dict) else getattr(item, "link", "")
-    templates = [
-        "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur leadership approach sits at the heart of {b}, where leaders learn to split the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
-        "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? In {b} I argue that structured games are a safe way to practise high-stakes decisions under pressure. Where do you see leaders getting that kind of practice today?",
-        "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. {b} is built as a playbook of modular exercises leaders apply, not passive theory they read. Which part of your own practice would you turn into an exercise first?",
-    ]
+    if _is_promote:
+        templates = [
+            "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur leadership approach sits at the heart of {b}, where leaders learn to split the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
+            "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? In {b} I argue that structured games are a safe way to practise high-stakes decisions under pressure. Where do you see leaders getting that kind of practice today?",
+            "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. {b} is built as a playbook of modular exercises leaders apply, not passive theory they read. Which part of your own practice would you turn into an exercise first?",
+        ]
+    else:
+        templates = [
+            "This raises a real question about {t}: humans paired with AI out-think either one alone. That centaur leadership approach is about splitting the work between machine speed and human judgment. What would change in your team if you practised that split deliberately?",
+            "This raises a real question about {t}: do leaders ever get to rehearse the hard calls before they arrive? Structured games are a safe way to practise high-stakes decisions under pressure. Where do you see leaders getting that kind of practice today?",
+            "This raises a real question about {t}: knowing a framework is not the same as using it under pressure. The real test is turning it into modular exercises leaders apply, not passive theory they read. Which part of your own practice would you turn into an exercise first?",
+        ]
     idx = int(hashlib.md5(item_link.encode() if item_link else b"fallback").hexdigest(), 16) % len(templates)
-    return templates[idx].format(t=topic, b=book)
+    if _is_promote:
+        return templates[idx].format(t=topic, b=book)
+    else:
+        return templates[idx].format(t=topic)
 
 def generate_drafts(client, item, variant: int = 0, groq_client=None, grok_client=None) -> None:
     # 2026-11-11: Stage 5 - Grok -> Groq rename. Accept both param names, prefer groq. Dual-write groq_* + grok_* for old app.py until Stage 5B.
