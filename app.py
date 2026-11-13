@@ -65,10 +65,16 @@ except Exception:
     def format_draft(x): return x or ""
     def generate_drafts(*args, **kwargs): pass
 try:
-    from scoring.selection import heuristic_assess, select_for_gemini, template_draft
+    from scoring.selection import heuristic_assess, select_for_gemini, template_draft, assess_heuristic_guarded, assess_from_scores
 except Exception:
     def heuristic_assess(p):
         _hay = ((p.get("title") or "") + " " + (p.get("snippet") or "") + " " + (p.get("_deep_text") or "")).lower()
+        # Fallback Sensitive check - even fallback must block Sensitive. Whole-word match.
+        import re as _re
+        _sens_list = ["suicide", "self-harm", "sexual assault", "rape", "genocide", "terrorism", "child abuse", "domestic violence", "hate crime"]
+        for _k in _sens_list:
+            if _re.search(r"(?<![a-z0-9])" + _re.escape(_k) + r"(?![a-z0-9])", _hay):
+                return {"decision": "D_SENSITIVE", "promo": 0, "opp": 0.0, "theme": "other", "reason": f"BLOCKED - sensitive topic (matched '{_k}'). No draft allowed."}        
         _strong = ["upskill", "reskill", "corporate training", "l&d", "learning and development", "hybrid intelligence", "human edge", "game-based", "experiential learning"]
         _medium = ["ai training", "ai upskilling", "leadership", "coaching", "workforce", "future of work", "adaptability", "critical thinking"]
         _s = sum(1 for k in _strong if k in _hay)
