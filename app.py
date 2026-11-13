@@ -445,12 +445,11 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                     if not _m:
                         raise ValueError(f"Gemini Assess no JSON in: {str(data)[:200]}")
                     d = json.loads(_m.group(0))
-                    relevance = int(d.get("relevance", 50)); conversation = int(d.get("conversation", 50)); recency = int(d.get("recency", 70))
-                    promo = round(relevance*0.30 + conversation*0.35 + recency*0.15 + 20)
-                    opp = round((relevance*0.40 + conversation*0.35 + recency*0.25)/10, 1)
-                    theme = d.get("theme", "other") or "other"
-                    decision = "A_PROMOTE" if promo >= 80 else ("B_ENGAGE" if promo >= 60 else "D_SKIP")
-                    assessed.append({**p, "decision": decision, "promo": promo, "opp": opp, "theme": theme, "reason": str(d.get("reason","Gemini"))[:200]})
+                    _rel = int(d.get("relevance", 50)); _conv = int(d.get("conversation", 50)); _rec = int(d.get("recency", 70))
+                    _theme = d.get("theme", "other") or "other"
+                    _flags = {"sensitive": d.get("sensitive", False), "is_breaking": d.get("is_breaking", False), "confidence": d.get("confidence", "MEDIUM")}
+                    _h = assess_from_scores(p, _rel, _conv, _rec, _theme, str(d.get("reason","Gemini"))[:200], source="gemini", flags=_flags)
+                    assessed.append({**p, **_h})
                     continue
                 except GeminiQuotaExceeded:
                     quota_hit = True; gclient = None
