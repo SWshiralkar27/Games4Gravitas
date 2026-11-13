@@ -469,10 +469,10 @@ if _show_assess and st.button("Assess posts (Gemini: max 12, rest heuristic)", k
                         raise ValueError(f"Groq Assess no JSON in: {str(_gdata)[:200]}")
                     _d2 = json.loads(_m2.group(0))
                     _rel = int(_d2.get("relevance", 50)); _conv = int(_d2.get("conversation", 50)); _rec = int(_d2.get("recency", 70))
-                    _promo = round(_rel*0.30 + _conv*0.35 + _rec*0.15 + 20)
-                    _opp = round((_rel*0.40 + _conv*0.35 + _rec*0.25)/10, 1)
-                    _dec = "A_PROMOTE" if _promo >= 80 else ("B_ENGAGE" if _promo >= 60 else "D_SKIP")
-                    assessed.append({**p, "decision": _dec, "promo": _promo, "opp": _opp, "theme": _d2.get("theme", "other"), "reason": "Groq Assess"})
+                    _theme2 = _d2.get("theme", "other") or "other"
+                    _flags2 = {"sensitive": _d2.get("sensitive", False), "is_breaking": _d2.get("is_breaking", False), "confidence": _d2.get("confidence", "MEDIUM")}
+                    _h2 = assess_from_scores(p, _rel, _conv, _rec, _theme2, "Groq Assess", source="groq", flags=_flags2)
+                    assessed.append({**p, **_h2})
                     _groq_done = True
                     continue
                 except Exception as _ge2:
