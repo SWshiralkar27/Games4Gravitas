@@ -145,7 +145,40 @@ if st.session_state["book_mode"] == "Custom Book (live)":
             st.caption(f"{_n} search term(s) saved for Custom Discovery.")
         else:
             st.caption("Fill Search Terms to start Custom Discovery.")
-#--CODE ABOVE IS ADDED FOR NEW BOOK--------
+
+# --- Phase 4: Stage 2 — Assess (Custom only) ---
+# Used in Assess in Phase 6. Phase 4 only collects and saves it. Gravitas is untouched.
+if "custom_profile" in st.session_state:
+    for _k, _v in [("good_opportunity", ""), ("scoring_emphasis", "Balanced"), ("geo_boost", "Boost India posts")]:
+        if _k not in st.session_state["custom_profile"]:
+            st.session_state["custom_profile"][_k] = _v
+
+if st.session_state["book_mode"] == "Custom Book (live)":
+    with st.sidebar.expander("Stage 2 — Assess", expanded=True):
+        st.caption("Assess decides Promote, Engage, Skip. It uses your description below, plus Age and Geo.")
+        st.session_state["custom_profile"]["good_opportunity"] = st.text_area(
+            "What counts as a good opportunity",
+            value=st.session_state["custom_profile"].get("good_opportunity", ""),
+            placeholder="A post where someone shares a bad service experience, asks for help, or vents publicly, and we can reply helpfully without sounding like the brand defending itself.",
+            help="This goes into the Assess prompt. Describe the post you want to engage with."
+        )
+        st.session_state["custom_profile"]["scoring_emphasis"] = st.radio(
+            "Scoring Emphasis",
+            ["Relevance heavy", "Recency heavy", "Balanced"],
+            index=["Relevance heavy", "Recency heavy", "Balanced"].index(st.session_state["custom_profile"].get("scoring_emphasis", "Balanced")),
+            help="How to rank. Recency heavy is best for complaints, because a 60 day old complaint is stale."
+        )
+        st.session_state["custom_profile"]["geo_boost"] = st.radio(
+            "Geography Boost",
+            ["Boost India posts", "Treat all posts equally"],
+            index=["Boost India posts", "Treat all posts equally"].index(st.session_state["custom_profile"].get("geo_boost", "Boost India posts")),
+            help="Should an India signal push a post up? Only applies if Geography in Stage 1 is India."
+        )
+        if st.session_state["custom_profile"].get("good_opportunity"):
+            st.caption("Assess description saved for Custom Assess.")
+        else:
+            st.caption("Fill what counts as a good opportunity to start Custom Assess.")
+#--CODE ABOVE IS ADDED FOR NEW BOOK on 16NOV2026--------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
 _DISCOVERY_ERR_FULL = ""
