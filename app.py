@@ -219,6 +219,16 @@ def _get_effective_search_terms():
         return []
     return None
 
+def _get_effective_relevance_keywords():
+    # Gravitas: return None, so Discovery uses search_terms as today
+    # Custom: return list from Stage 1 Relevance Keywords, comma separated
+    if st.session_state.get("book_mode") == "Custom Book (live)":
+        raw = st.session_state.get("custom_profile", {}).get("relevance_keywords", "")
+        terms = [x.strip() for x in re.split(r"[,\n]", raw or "") if x.strip()]
+        if terms:
+            return terms
+    return None
+
 #--CODE ABOVE IS ADDED FOR NEW BOOK on 16NOV2026--------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
@@ -539,7 +549,8 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
             if _effective_terms == []:
                 st.stop()
             _terms_to_use = _effective_terms if _effective_terms is not None else _parsed_terms
-            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_terms_to_use, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery Deep check {done}/{total}...')))
+            _effective_relevance = _get_effective_relevance_keywords()
+            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_terms_to_use, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery Deep check {done}/{total}...')), relevance_keywords=_effective_relevance)
             _log(f"Discovery: raw={stats.get('raw','?')} kept={stats.get('kept_for_assessment', len(pruned))}")
             st.session_state.discovered = pruned or []
             st.session_state.discovery_raw_links = stats.get("raw_links", [])
