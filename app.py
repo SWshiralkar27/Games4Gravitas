@@ -27,6 +27,21 @@ except Exception as e:
     _GEMINI_IMPORT_ERR = e
 else:
     _GEMINI_IMPORT_ERR = None
+# addition for Age display
+def _format_age(p):
+    try:
+        bucket = (p.get("age_bucket") or "unknown") if isinstance(p, dict) else "unknown"
+        days = p.get("age_days") if isinstance(p, dict) else None
+        src = (p.get("age_source") or "") if isinstance(p, dict) else ""
+        if days is None:
+            return f"unknown ({src})" if src and src != "none" else "unknown"
+        if days == 0:
+            return f"today • {bucket} ({src})"
+        if days == 1:
+            return f"1d • {bucket} ({src})"
+        return f"{days}d • {bucket} ({src})"
+    except Exception:
+        return "unknown"
 
 # --- Groq fallback (separate quota) ---
 # 2026-11-11: Stage 5C - Groq only. Reason: groq_client.py tested in Stage 3-5B, old grok_client.py will be deleted.
@@ -512,7 +527,7 @@ if st.session_state.assessed:
         title = str(post.get("title","Untitled"))[:120]
         with st.expander(f"{post.get('platform','Web')} - {title} | Suggested: {post.get('decision')} | Promo: {post.get('promo')}"):
             st.markdown(f"Link: [{str(post.get('link',''))[:80]}]({post.get('link','')})")
-            st.caption(f"Opp: {post.get('opp', 'unknown')} | Scored by: {post.get('scored_by', post.get('_scored_by', 'unknown'))} | Reason: {post.get('reason', post.get('_deep_reason', ''))}")
+            st.caption(f"Opp: {post.get('opp', 'unknown')} | Scored by: {post.get('scored_by', post.get('_scored_by', 'unknown'))} | Age: {_format_age(post)} | Reason: {post.get('reason', post.get('_deep_reason', ''))}")
             _is_sens = post.get("decision") == "D_SENSITIVE"
             if _is_sens:
                 st.error("BLOCKED - sensitive topic. No draft allowed.")
