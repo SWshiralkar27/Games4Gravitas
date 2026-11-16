@@ -258,6 +258,28 @@ def prune_discovery(all_posts, seen_urls=None):
         for p in web_kept:
             p["_auto_skip"] = True
     # Sort social / question / recent first - simple: social first, then title with ? first
+
+    def _is_ld_relevant(p, search_terms=None):
+    # L&D relevance filter for Medium / YouTube only — Web search already uses SEARCH_TERMS
+    # Keep if title+snippet contains any L&D keyword. Fail-open: if no text, keep.
+    try:
+        if isinstance(p, dict):
+            txt = (_safe_str(p.get("title", "")) + " " + _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", ""))).lower()
+        elif isinstance(p, (list, tuple)):
+            txt = " ".join(_safe_str(x) for x in p).lower()
+        elif isinstance(p, str):
+            txt = p.lower()
+        else:
+            txt = (_safe_str(getattr(p, "title", "")) + " " + _safe_str(getattr(p, "summary", "") or getattr(p, "description", ""))).lower()
+        if not txt.strip():
+            return True
+        _ld_keys = ("upskill", "reskill", "l&d", "learning", "training", "workforce", "corporate", "leadership", "coach", "skill", "talent", "employee", "develop", "facilitat", "debrief", "experiential", "simulation", "game-based", "game based", "play-based", "play based", "team building", "human skill")
+        for k in _ld_keys:
+            if k in txt:
+                return True
+        return False
+    except Exception:
+        return True
     def _sort_key(p):
         is_q = 1 if "?" in (p.get("title") or "") else 0
         is_social = 1 if _is_social(p.get("platform", "")) else 0
@@ -346,14 +368,19 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
             except Exception:
                 m = []
         if isinstance(m, list):
-            all_posts.extend(m)
-            per_source["medium"] = len(m)
+            _m_filtered = [x for x in m if _is_ld_relevant(x, search_terms)]
+            all_posts.extend(_m_filtered)
+            per_source["medium"] = len(_m_filtered)
+            per_source["medium_filtered_out"] = len(m) - len(_m_filtered)
         elif m is None:
             per_source["medium"] = 0
         else:
             # Single non-list item (e.g. coroutine object previously counted as 1)
-            all_posts.append(m)
-            per_source["medium"] = 1
+            if _is_ld_relevant(m, search_terms):
+                all_posts.append(m)
+                per_source["medium"] = 1
+            else:
+                per_source["medium"] = 0
     except Exception as e:
         per_source["medium_error"] = str(e)[:200]
         per_source["medium"] = 0
@@ -373,13 +400,18 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
             except Exception:
                 y = []
         if isinstance(y, list):
-            all_posts.extend(y)
-            per_source["youtube"] = len(y)
+            _y_filtered = [x for x in y if _is_ld_relevant(x, search_terms)]
+            all_posts.extend(_y_filtered)
+            per_source["youtube"] = len(_y_filtered)
+            per_source["youtube_filtered_out"] = len(y) - len(_y_filtered)
         elif y is None:
             per_source["youtube"] = 0
         else:
-            all_posts.append(y)
-            per_source["youtube"] = 1
+            if _is_ld_relevant(y, search_terms):
+                all_posts.append(y)
+                per_source["youtube"] = 1
+            else:
+                per_source["youtube"] = 0
     except Exception as e:
         per_source["youtube_error"] = str(e)[:200]
         per_source["youtube"] = 0
