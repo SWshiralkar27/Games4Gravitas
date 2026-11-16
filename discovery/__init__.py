@@ -4,7 +4,7 @@
 # If config.py changed (v4.7 added MODEL_QUOTAS etc.), a missing name broke the WHOLE discovery import
 # and app showed "OLD - import failed" even though filenames were correct.
 # This version defines __VERSION__ FIRST and imports config LAZILY inside functions with defaults,
-# so it can never fail to import. Each source (web/medium/youtube) is also lazy + try/except.
+# so it can never fail to import. Each source (web/【entity-medium¦canonical_name=Medium】/youtube) is also lazy + try/except.
 __VERSION__ = "4.9.3"
 
 import re
@@ -31,6 +31,7 @@ def _safe_str(x):
         return str(x)
     except Exception:
         return ""
+
 def _parse_date_value(v):
     """Return (datetime or None, confidence). Handles datetime, struct_time, epoch, ISO, email date, 'X days ago'."""
     if v is None or v == "":
@@ -46,7 +47,7 @@ def _parse_date_value(v):
                 return None, "unknown"
         if isinstance(v, (int, float)):
             try:
-                return datetime.fromtimestamp(float(v), tz=timezone.utc), "medium"
+                return datetime.fromtimestamp(float(v), tz=timezone.utc), "【entity-medium¦canonical_name=Medium】"
             except Exception:
                 return None, "unknown"
         if isinstance(v, str):
@@ -87,7 +88,7 @@ def _parse_date_value(v):
             # Simple date: 2026-11-14, Nov 14 2026
             for fmt in ("%Y-%m-%d", "%d %b %Y", "%b %d, %Y", "%B %d, %Y"):
                 try:
-                    return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc), "medium"
+                    return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc), "【entity-medium¦canonical_name=Medium】"
                 except Exception:
                     continue
     except Exception:
@@ -119,7 +120,7 @@ def _age_fields_from_dt(dt, source, confidence):
 
 def _extract_age_from_dict(d):
     # Explicit date fields first, in order
-    for key, src, conf in [("published_at", "published_at", "high"), ("publishedAt", "publishedAt", "high"), ("pubDate", "pubDate", "high"), ("published", "published", "high"), ("published_parsed", "published_parsed", "high"), ("updated_parsed", "updated_parsed", "high"), ("updated_at", "updated_at", "medium"), ("updated", "updated", "medium"), ("date", "date", "medium"), ("timestamp", "timestamp", "medium"), ("created_at", "created_at", "medium")]:
+    for key, src, conf in [("published_at", "published_at", "high"), ("publishedAt", "publishedAt", "high"), ("pubDate", "pubDate", "high"), ("published", "published", "high"), ("published_parsed", "published_parsed", "high"), ("updated_parsed", "updated_parsed", "high"), ("updated_at", "updated_at", "【entity-medium¦canonical_name=Medium】"), ("updated", "updated", "【entity-medium¦canonical_name=Medium】"), ("date", "date", "【entity-medium¦canonical_name=Medium】"), ("timestamp", "timestamp", "【entity-medium¦canonical_name=Medium】"), ("created_at", "created_at", "【entity-medium¦canonical_name=Medium】")]:
         if key in (d or {}) and d.get(key):
             dt, c = _parse_date_value(d.get(key))
             if dt is not None:
@@ -139,6 +140,7 @@ def _extract_age_from_dict(d):
         base["age_bucket"] = "archived"
         return base
     return _age_fields_from_dt(None, "none", "unknown")
+
 def _normalize_post(p):
     # Returns dict or None (drop)
     if p is None:
@@ -161,11 +163,11 @@ def _normalize_post(p):
         title = _safe_str(p.get("title", "")).strip()
         snippet = _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", "") or title)
         platform = _safe_str(p.get("platform", "") or p.get("source", "") or "Web")
-        # Infer platform from link when fetcher left it as Web — otherwise Medium/YouTube stay in web bucket
+        # Infer platform from link when fetcher left it as Web — otherwise 【entity-Medium¦canonical_name=Medium】/YouTube stay in web bucket
         if (not platform or platform == "Web") and link:
             _ll = link.lower()
-            if "medium.com" in _ll:
-                platform = "Medium"
+            if "【entity-medium¦canonical_name=Medium】.com" in _ll:
+                platform = "【entity-Medium¦canonical_name=Medium】"
             elif "youtube.com" in _ll or "youtu.be" in _ll:
                 platform = "YouTube"
         if not title and not link and not snippet:
@@ -199,6 +201,28 @@ def _is_social(platform):
         if k in pl:
             return True
     return False
+
+def _is_ld_relevant(p, search_terms=None):
+    # L&D relevance filter for Medium / YouTube only — Web search already uses SEARCH_TERMS
+    # Keep if title+snippet contains any L&D keyword. Fail-open: if no text, keep.
+    try:
+        if isinstance(p, dict):
+            txt = (_safe_str(p.get("title", "")) + " " + _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", ""))).lower()
+        elif isinstance(p, (list, tuple)):
+            txt = " ".join(_safe_str(x) for x in p).lower()
+        elif isinstance(p, str):
+            txt = p.lower()
+        else:
+            txt = (_safe_str(getattr(p, "title", "")) + " " + _safe_str(getattr(p, "summary", "") or getattr(p, "description", ""))).lower()
+        if not txt.strip():
+            return True
+        _ld_keys = ("upskill", "reskill", "l&d", "learning", "training", "workforce", "corporate", "leadership", "coach", "skill", "talent", "employee", "develop", "facilitat", "debrief", "experiential", "simulation", "game-based", "game based", "play-based", "play based", "team building", "human skill")
+        for k in _ld_keys:
+            if k in txt:
+                return True
+        return False
+    except Exception:
+        return True
 
 def prune_discovery(all_posts, seen_urls=None):
     seen_urls = set(seen_urls or set())
@@ -258,28 +282,6 @@ def prune_discovery(all_posts, seen_urls=None):
         for p in web_kept:
             p["_auto_skip"] = True
     # Sort social / question / recent first - simple: social first, then title with ? first
-
-    def _is_ld_relevant(p, search_terms=None):
-    # L&D relevance filter for Medium / YouTube only — Web search already uses SEARCH_TERMS
-    # Keep if title+snippet contains any L&D keyword. Fail-open: if no text, keep.
-    try:
-        if isinstance(p, dict):
-            txt = (_safe_str(p.get("title", "")) + " " + _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", ""))).lower()
-        elif isinstance(p, (list, tuple)):
-            txt = " ".join(_safe_str(x) for x in p).lower()
-        elif isinstance(p, str):
-            txt = p.lower()
-        else:
-            txt = (_safe_str(getattr(p, "title", "")) + " " + _safe_str(getattr(p, "summary", "") or getattr(p, "description", ""))).lower()
-        if not txt.strip():
-            return True
-        _ld_keys = ("upskill", "reskill", "l&d", "learning", "training", "workforce", "corporate", "leadership", "coach", "skill", "talent", "employee", "develop", "facilitat", "debrief", "experiential", "simulation", "game-based", "game based", "play-based", "play based", "team building", "human skill")
-        for k in _ld_keys:
-            if k in txt:
-                return True
-        return False
-    except Exception:
-        return True
     def _sort_key(p):
         is_q = 1 if "?" in (p.get("title") or "") else 0
         is_social = 1 if _is_social(p.get("platform", "")) else 0
