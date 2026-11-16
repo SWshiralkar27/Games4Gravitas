@@ -178,6 +178,34 @@ if st.session_state["book_mode"] == "Custom Book (live)":
             st.caption("Assess description saved for Custom Assess.")
         else:
             st.caption("Fill what counts as a good opportunity to start Custom Assess.")
+
+# --- Phase 5: Stage 3 — Drafts (Custom only) ---
+# Used in Drafts in Phase 7. Phase 5 only collects and saves it. Gravitas is untouched.
+if "custom_profile" in st.session_state:
+    for _k, _v in [("book_mention_rule", "Mention only if it fits"), ("end_with_question", True), ("one_data_point", True)]:
+        if _k not in st.session_state["custom_profile"]:
+            st.session_state["custom_profile"][_k] = _v
+
+if st.session_state["book_mode"] == "Custom Book (live)":
+    with st.sidebar.expander("Stage 3 — Drafts", expanded=True):
+        st.caption("Drafts use your Book Title, Promise, and Voice from Stage 0, plus this panel.")
+        st.session_state["custom_profile"]["book_mention_rule"] = st.radio(
+            "Book Mention Rule",
+            ["Mention only if it fits", "Always mention", "Never mention"],
+            index=["Mention only if it fits", "Always mention", "Never mention"].index(st.session_state["custom_profile"].get("book_mention_rule", "Mention only if it fits")),
+            help="When should drafts mention your book."
+        )
+        st.session_state["custom_profile"]["end_with_question"] = st.checkbox(
+            "End with Question",
+            value=st.session_state["custom_profile"].get("end_with_question", True),
+            help="Same 05-R2 rule as Gravitas. Draft ends with a question last, not a book line after the question."
+        )
+        st.session_state["custom_profile"]["one_data_point"] = st.checkbox(
+            "One Data Point",
+            value=st.session_state["custom_profile"].get("one_data_point", True),
+            help="Draft must use one grounded data point if the post has one."
+        )
+        st.caption(f"Draft rule saved: {st.session_state['custom_profile'].get('book_mention_rule', '')}")
 #--CODE ABOVE IS ADDED FOR NEW BOOK on 16NOV2026--------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
