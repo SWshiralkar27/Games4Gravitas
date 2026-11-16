@@ -161,6 +161,13 @@ def _normalize_post(p):
         title = _safe_str(p.get("title", "")).strip()
         snippet = _safe_str(p.get("snippet", "") or p.get("summary", "") or p.get("description", "") or title)
         platform = _safe_str(p.get("platform", "") or p.get("source", "") or "Web")
+        # Infer platform from link when fetcher left it as Web — otherwise Medium/YouTube stay in web bucket
+        if (not platform or platform == "Web") and link:
+            _ll = link.lower()
+            if "medium.com" in _ll:
+                platform = "Medium"
+            elif "youtube.com" in _ll or "youtu.be" in _ll:
+                platform = "YouTube"
         if not title and not link and not snippet:
             return None
         _age = _extract_age_from_dict(p)
@@ -188,7 +195,7 @@ def _normalize_post(p):
 
 def _is_social(platform):
     pl = (platform or "").lower()
-    for k in ("linkedin", "x", "twitter", "threads", "facebook", "instagram", "reddit", "social"):
+    for k in ("linkedin", "x", "twitter", "threads", "facebook", "instagram", "reddit", "medium", "youtube", "social"):
         if k in pl:
             return True
     return False
