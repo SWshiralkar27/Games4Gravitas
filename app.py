@@ -206,6 +206,19 @@ if st.session_state["book_mode"] == "Custom Book (live)":
             help="Draft must use one grounded data point if the post has one."
         )
         st.caption(f"Draft rule saved: {st.session_state['custom_profile'].get('book_mention_rule', '')}")
+# --- Phase 6: Discovery wiring — Custom uses live Search Terms ---
+def _get_effective_search_terms():
+    # Gravitas: return None, so Discovery uses config SEARCH_TERMS as today
+    # Custom: return list from Stage 1 panel, if filled
+    if st.session_state.get("book_mode") == "Custom Book (live)":
+        raw = st.session_state.get("custom_profile", {}).get("search_terms", "")
+        terms = [x.strip() for x in (raw or "").splitlines() if x.strip()]
+        if terms:
+            return terms
+        st.warning("Custom Book selected but Search Terms in Stage 1 are empty. Fill them to run Custom Discovery.")
+        return []
+    return None
+
 #--CODE ABOVE IS ADDED FOR NEW BOOK on 16NOV2026--------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
@@ -522,7 +535,11 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
     _disc_status.info("Discovery running...")
     if run_discovery_with_stats is not None:
         try:
-            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_parsed_terms, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery Deep check {done}/{total}...')))
+            _effective_terms = _get_effective_search_terms()
+            if _effective_terms == []:
+                st.stop()
+            _terms_to_use = _effective_terms if _effective_terms is not None else _parsed_terms
+            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_terms_to_use, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery Deep check {done}/{total}...')))
             _log(f"Discovery: raw={stats.get('raw','?')} kept={stats.get('kept_for_assessment', len(pruned))}")
             st.session_state.discovered = pruned or []
             st.session_state.discovery_raw_links = stats.get("raw_links", [])
@@ -530,12 +547,6 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
             _disc_prog.progress(1.0)
             _disc_status.success("Discovery done.")
             st.success(f"Discovery complete: Kept {len(pruned)} for assessment.")
-        except Exception as e:
-            st.warning(f"Real discovery failed ({e}) - using fallback discovery.")
-            pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
-            st.session_state.discovered = pruned or []
-            st.session_state.assessed = []
-            st.success(f"[SAFE FALLBACK USED] Discovery returned {len(pruned)} posts.")
     else:
         pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
         st.session_state.discovered = pruned or []
