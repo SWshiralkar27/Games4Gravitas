@@ -10,6 +10,8 @@ __VERSION__ = "4.9.3"
 import re
 import asyncio
 import inspect
+from datetime import datetime, timezone, timedelta
+import email.utils
 
 def _get_config(name, default):
     try:
@@ -29,7 +31,114 @@ def _safe_str(x):
         return str(x)
     except Exception:
         return ""
+def _parse_date_value(v):
+    """Return (datetime or None, confidence). Handles datetime, struct_time, epoch, ISO, email date, 'X days ago'."""
+    if v is None or v == "":
+        return None, "unknown"
+    try:
+        if isinstance(v, datetime):
+            return v, "high"
+        # feedparser struct_time has tm_year
+        if hasattr(v, "tm_year"):
+            try:
+                return datetime(*v[:6], tzinfo=timezone.utc), "high"
+            except Exception:
+                return None, "unknown"
+        if isinstance(v, (int, float)):
+            try:
+                return datetime.fromtimestamp(float(v), tz=timezone.utc), "medium"
+            except Exception:
+                return None, "unknown"
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None, "unknown"
+            # Relative: "3 days ago", "2 hours ago"
+            m = re.match(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", s.lower())
+            if m:
+                n = int(m.group(1))
+                unit = m.group(2)
+                now = datetime.now(timezone.utc)
+                if unit == "second":
+                    return now - timedelta(seconds=n), "low"
+                if unit == "minute":
+                    return now - timedelta(minutes=n), "low"
+                if unit == "hour":
+                    return now - timedelta(hours=n), "low"
+                if unit == "day":
+                    return now - timedelta(days=n), "low"
+                if unit == "week":
+                    return now - timedelta(weeks=n), "low"
+                if unit == "month":
+                    return now - timedelta(days=n*30), "low"
+                if unit == "year":
+                    return now - timedelta(days=n*365), "low"
+            # ISO: 2026-11-14T09:30:00Z
+            try:
+                iso = s.replace("Z", "+00:00")
+                return datetime.fromisoformat(iso), "high"
+            except Exception:
+                pass
+            # Email / RSS: Tue, 12 Nov 2026 10:00:00 GMT
+            try:
+                return email.utils.parsedate_to_datetime(s), "high"
+            except Exception:
+                pass
+            # Simple date: 2026-11-14, Nov 14 2026
+            for fmt in ("%Y-%m-%d", "%d %b %Y", "%b %d, %Y", "%B %d, %Y"):
+                try:
+                    return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc), "medium"
+                except Exception:
+                    continue
+    except Exception:
+        return None, "unknown"
+    return None, "unknown"
 
+def _age_fields_from_dt(dt, source, confidence):
+    if dt is None:
+        return {"published_at": "", "hours_since_post": None, "age_days": None, "age_bucket": "unknown", "is_archived": False, "age_source": "none", "age_confidence": "unknown"}
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        hours = (now - dt).total_seconds() / 3600.0
+        if hours < 0:
+            hours = 0
+        age_days = int(hours // 24)
+        if age_days <= 7:
+            bucket = "fresh"
+        elif age_days <= 30:
+            bucket = "recent"
+        elif age_days <= 90:
+            bucket = "old"
+        else:
+            bucket = "archived"
+        return {"published_at": dt.isoformat(), "hours_since_post": round(hours, 1), "age_days": age_days, "age_bucket": bucket, "is_archived": bool(bucket == "archived"), "age_source": source, "age_confidence": confidence}
+    except Exception:
+        return {"published_at": "", "hours_since_post": None, "age_days": None, "age_bucket": "unknown", "is_archived": False, "age_source": "none", "age_confidence": "unknown"}
+
+def _extract_age_from_dict(d):
+    # Explicit date fields first, in order
+    for key, src, conf in [("published_at", "published_at", "high"), ("publishedAt", "publishedAt", "high"), ("pubDate", "pubDate", "high"), ("published", "published", "high"), ("published_parsed", "published_parsed", "high"), ("updated_parsed", "updated_parsed", "high"), ("updated_at", "updated_at", "medium"), ("updated", "updated", "medium"), ("date", "date", "medium"), ("timestamp", "timestamp", "medium"), ("created_at", "created_at", "medium")]:
+        if key in (d or {}) and d.get(key):
+            dt, c = _parse_date_value(d.get(key))
+            if dt is not None:
+                return _age_fields_from_dt(dt, src, c or conf)
+    # Fallback: "3 days ago" in snippet / title
+    for txt in [d.get("snippet", ""), d.get("title", "")]:
+        m = re.search(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", (txt or "").lower())
+        if m:
+            dt, c = _parse_date_value(m.group(0))
+            if dt is not None:
+                return _age_fields_from_dt(dt, "snippet_text", "low")
+    # Archived flag, even if no date
+    hay = ((d.get("title", "") or "") + " " + (d.get("snippet", "") or "")).lower()
+    if "archived" in hay or "/archive" in (d.get("link", "") or "").lower():
+        base = _age_fields_from_dt(None, "none", "unknown")
+        base["is_archived"] = True
+        base["age_bucket"] = "archived"
+        return base
+    return _age_fields_from_dt(None, "none", "unknown")
 def _normalize_post(p):
     # Returns dict or None (drop)
     if p is None:
@@ -54,7 +163,8 @@ def _normalize_post(p):
         platform = _safe_str(p.get("platform", "") or p.get("source", "") or "Web")
         if not title and not link and not snippet:
             return None
-        return {"title": title[:300], "link": link, "snippet": snippet[:800], "platform": platform or "Web"}
+        _age = _extract_age_from_dict(p)
+        return {"title": title[:300], "link": link, "snippet": snippet[:800], "platform": platform or "Web", **_age}
     # ContentItem / object without .get - fall through to getattr branch below
     if isinstance(p, dict):
         # dict-like but no .get (e.g. ContentItem) - treat as object
