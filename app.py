@@ -533,27 +533,27 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
     _disc_status = st.empty()
     _disc_prog = st.progress(0)
     _disc_status.info("Discovery running...")
-    if run_discovery_with_stats is not None:
-        try:
-            _effective_terms = _get_effective_search_terms()
-            if _effective_terms == []:
-                st.stop()
-            _terms_to_use = _effective_terms if _effective_terms is not None else _parsed_terms
-            pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_terms_to_use, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery Deep check {done}/{total}...')))
-            _log(f"Discovery: raw={stats.get('raw','?')} kept={stats.get('kept_for_assessment', len(pruned))}")
-            st.session_state.discovered = pruned or []
-            st.session_state.discovery_raw_links = stats.get("raw_links", [])
-            st.session_state.assessed = []
-            _disc_prog.progress(1.0)
-            _disc_status.success("Discovery done.")
-            st.success(f"Discovery complete: Kept {len(pruned)} for assessment.")
-    except Exception as e:
-        st.error(f"Discovery failed: {e}")
-        _log(f"Discovery error: {e}")
-        pruned = []
-        stats = {"raw": "?", "kept_for_assessment": 0, "raw_links": []}
-else:
-    pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
+        if run_discovery_with_stats is not None:
+            try:
+                _effective_terms = _get_effective_search_terms()
+                if _effective_terms == []:
+                    st.stop()
+                _terms_to_use = _effective_terms if _effective_terms is not None else _parsed_terms
+                pruned, stats = run_discovery_with_stats(seen_urls=seen_urls, search_terms=_terms_to_use, progress_cb=lambda done, total: (_disc_prog.progress(min(1.0, done/total)) if total else None, _disc_status.info(f'Discovery Deep check {done}/{total}...')))
+                _log(f"Discovery: raw={stats.get('raw','?')} kept={stats.get('kept_for_assessment', len(pruned))}")
+                st.session_state.discovered = pruned or []
+                st.session_state.discovery_raw_links = stats.get("raw_links", [])
+                st.session_state.assessed = []
+                _disc_prog.progress(1.0)
+                _disc_status.success("Discovery done.")
+                st.success(f"Discovery complete: Kept {len(pruned)} for assessment.")
+            except Exception as e:
+                st.error(f"Discovery failed: {e}")
+                _log(f"Discovery error: {e}")
+                pruned = []
+                stats = {"raw": "?", "kept_for_assessment": 0, "raw_links": []}
+        else:
+            pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
         st.session_state.discovered = pruned or []
         st.session_state.assessed = []
         st.success(f"[SAFE FALLBACK USED] Discovery returned {len(pruned)} posts.")
