@@ -424,7 +424,6 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
     stats["raw_links"] = [p.get("link", "") for p in all_posts if p.get("link")]
     # --- STEP 2 DEEP DISCOVERY (v4.8) ---
     # Only for kept candidates (max ~23), 0 Gemini calls. Weeds out title-matches where body does not fit.
-    try:
     # Phase 8: Custom skips Gravitas Deep check - Deep still uses L&D logic, would weed all complaint posts
     if relevance_keywords:
         stats["deep_checked"] = 0
