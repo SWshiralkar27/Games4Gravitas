@@ -216,6 +216,13 @@ def _is_ld_relevant(p, search_terms=None):
             txt = (_safe_str(getattr(p, "title", "")) + " " + _safe_str(getattr(p, "summary", "") or getattr(p, "description", ""))).lower()
         if not txt.strip():
             return True
+        # Phase 7 fix: Custom passes relevance keywords in search_terms arg, use those, not hardcoded L&D list
+        if search_terms:
+            _keys = [str(x).lower() for x in search_terms if str(x).strip()]
+            for k in _keys:
+                if k and k in txt:
+                    return True
+            return False
         _ld_keys = ("upskill", "reskill", "l&d", "learning", "training", "workforce", "corporate", "leadership", "coach", "skill", "talent", "employee", "develop", "facilitat", "debrief", "experiential", "simulation", "game-based", "game based", "play-based", "play based", "team building", "human skill")
         for k in _ld_keys:
             if k in txt:
