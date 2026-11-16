@@ -107,7 +107,45 @@ if st.session_state["book_mode"] == "Custom Book (live)":
             st.caption("Fill Book Title to start Custom setup.")
 else:
     st.sidebar.caption("Gravitas — fixed settings. No Custom fields.")
-    #----ADDED for new book -16NOV26----------------
+#----ADDED for new book -16NOV26----------------
+if "custom_profile" in st.session_state:
+    for _k, _v in [("search_terms", ""), ("relevance_keywords", ""), ("geography", "India"), ("geo_keywords", "")]:
+        if _k not in st.session_state["custom_profile"]:
+            st.session_state["custom_profile"][_k] = _v
+
+if st.session_state["book_mode"] == "Custom Book (live)":
+    with st.sidebar.expander("Stage 1 — Discovery", expanded=True):
+        st.caption("Discovery finds posts. Search Terms find them, Relevance Keywords keep only the on-topic ones.")
+        st.session_state["custom_profile"]["search_terms"] = st.text_area(
+            "Search Terms, one per line",
+            value=st.session_state["custom_profile"].get("search_terms", ""),
+            placeholder="customer complaint India\nservice failure refund India\nangry customer support India\nworst customer service experience",
+            help="These go into web search. Be specific. Include geography if your book is India-limited."
+        )
+        st.session_state["custom_profile"]["relevance_keywords"] = st.text_area(
+            "Relevance Keywords, comma separated",
+            value=st.session_state["custom_profile"].get("relevance_keywords", ""),
+            placeholder="complaint, refund, service failure, rude staff, escalation, churn, support ticket",
+            help="Medium and YouTube are filtered by these. If a post has none of these words in title or snippet, it is dropped before Assess."
+        )
+        st.session_state["custom_profile"]["geography"] = st.selectbox(
+            "Geography",
+            ["India", "Global", "US", "UK"],
+            index=["India", "Global", "US", "UK"].index(st.session_state["custom_profile"].get("geography", "India")),
+            help="Who is the book for. India adds a geography boost in Assess. Global means no boost."
+        )
+        st.session_state["custom_profile"]["geo_keywords"] = st.text_input(
+            "Geography Keywords, optional",
+            value=st.session_state["custom_profile"].get("geo_keywords", ""),
+            placeholder="India, Indian, Mumbai, Delhi, Bengaluru, INR",
+            help="Words that prove a post is from your geography. Used for the Geo signal in Assess."
+        )
+        if st.session_state["custom_profile"].get("search_terms"):
+            _n = len([x for x in st.session_state["custom_profile"]["search_terms"].splitlines() if x.strip()])
+            st.caption(f"{_n} search term(s) saved for Custom Discovery.")
+        else:
+            st.caption("Fill Search Terms to start Custom Discovery.")
+#--CODE ABOVE IS ADDED FOR NEW BOOK--------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
 _DISCOVERY_ERR_FULL = ""
