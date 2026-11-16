@@ -547,8 +547,13 @@ if st.button("Run Discovery", key="run_discovery_btn_v472"):
             _disc_prog.progress(1.0)
             _disc_status.success("Discovery done.")
             st.success(f"Discovery complete: Kept {len(pruned)} for assessment.")
-    else:
-        pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
+    except Exception as e:
+        st.error(f"Discovery failed: {e}")
+        _log(f"Discovery error: {e}")
+        pruned = []
+        stats = {"raw": "?", "kept_for_assessment": 0, "raw_links": []}
+else:
+    pruned, stats = _fb_run_discovery(seen_urls=seen_urls, search_terms=_parsed_terms)
         st.session_state.discovered = pruned or []
         st.session_state.assessed = []
         st.success(f"[SAFE FALLBACK USED] Discovery returned {len(pruned)} posts.")
