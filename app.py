@@ -53,7 +53,24 @@ except Exception:
     class GroqQuotaExceeded(Exception): pass
     class GroqTransientError(Exception): pass
     GROQ_MODEL = "openai/gpt-oss-20b"
+#---adding a radio button for new books----
+# --- Phase 1: Book Mode — Frozen + Live ---
+# Gravitas is frozen. Custom Book will use live panel fields in Phase 2. Phase 1 only adds the radio, no downstream change.
+if "book_mode" not in st.session_state:
+    st.session_state["book_mode"] = "Games for Gravitas (fixed)"
 
+st.session_state["book_mode"] = st.sidebar.radio(
+    "Book Mode",
+    ["Games for Gravitas (fixed)", "Custom Book (live)"],
+    index=0 if st.session_state["book_mode"] == "Games for Gravitas (fixed)" else 1,
+    help="Gravitas uses fixed settings. Custom Book will use live panel fields in Phase 2."
+)
+
+if st.session_state["book_mode"] == "Custom Book (live)":
+    st.sidebar.info("Custom Book setup coming in Phase 2. Gravitas still runs as today.")
+else:
+    st.sidebar.caption("Gravitas — fixed settings")
+#------end of block------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
 _DISCOVERY_ERR_FULL = ""
@@ -359,7 +376,9 @@ with col_info:
 
 if not _parsed_terms:
     st.warning("No search terms - add at least 1 term or click Reset to defaults.")
-
+#----ADDING RADIO BUTTON -------
+st.caption(f"Book Mode: {st.session_state.get('book_mode', 'Games for Gravitas (fixed)')}")
+#-----END of NEW BUTTON-------
 if st.button("Run Discovery", key="run_discovery_btn_v472"):
     _clear_kill("Discovery")
     _disc_status = st.empty()
