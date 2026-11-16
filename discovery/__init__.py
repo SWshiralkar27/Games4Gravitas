@@ -306,7 +306,7 @@ def prune_discovery(all_posts, seen_urls=None):
     }
     return kept, stats
 
-def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None):
+def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None, relevance_keywords=None):
     seen_urls = set(seen_urls or set())
     # v4.9.2: allow app UI to override search terms for this run. If None, use config.
     if search_terms is None:
@@ -327,6 +327,7 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
         if _q and _q not in _cleaned:
             _cleaned.append(_q)
     search_terms = _cleaned if _cleaned else _get_config("SEARCH_TERMS", ["corporate upskilling AI"])
+    _rel_terms = relevance_keywords if relevance_keywords else search_terms
     max_per = _get_config("MAX_RESULTS_PER_SOURCE", 5)
     try:
         max_per = int(max_per)
@@ -370,7 +371,7 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
             except Exception:
                 m = []
         if isinstance(m, list):
-            _m_filtered = [x for x in m if _is_ld_relevant(x, search_terms)]
+            _m_filtered = [x for x in m if _is_ld_relevant(x, _rel_terms)]
             all_posts.extend(_m_filtered)
             per_source["medium"] = len(_m_filtered)
             per_source["medium_filtered_out"] = len(m) - len(_m_filtered)
@@ -378,7 +379,7 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
             per_source["medium"] = 0
         else:
             # Single non-list item (e.g. coroutine object previously counted as 1)
-            if _is_ld_relevant(m, search_terms):
+            if _is_ld_relevant(m, _rel_terms):
                 all_posts.append(m)
                 per_source["medium"] = 1
             else:
@@ -402,14 +403,14 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
             except Exception:
                 y = []
         if isinstance(y, list):
-            _y_filtered = [x for x in y if _is_ld_relevant(x, search_terms)]
+            _y_filtered = [x for x in y if _is_ld_relevant(x, _rel_terms)]
             all_posts.extend(_y_filtered)
             per_source["youtube"] = len(_y_filtered)
             per_source["youtube_filtered_out"] = len(y) - len(_y_filtered)
         elif y is None:
             per_source["youtube"] = 0
         else:
-            if _is_ld_relevant(y, search_terms):
+            if _is_ld_relevant(y, _rel_terms):
                 all_posts.append(y)
                 per_source["youtube"] = 1
             else:
