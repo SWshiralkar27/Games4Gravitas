@@ -125,15 +125,15 @@ def _extract_age_from_dict(d):
             if dt is not None:
                 return _age_fields_from_dt(dt, src, c or conf)
     # Fallback: "3 days ago" in snippet / title
-    for txt in [d.get("snippet", ""), d.get("title", "")]:
+    for txt in [_safe_str(d.get("snippet", "")), _safe_str(d.get("title", ""))]:
         m = re.search(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", (txt or "").lower())
         if m:
             dt, c = _parse_date_value(m.group(0))
             if dt is not None:
                 return _age_fields_from_dt(dt, "snippet_text", "low")
     # Archived flag, even if no date
-    hay = ((d.get("title", "") or "") + " " + (d.get("snippet", "") or "")).lower()
-    if "archived" in hay or "/archive" in (d.get("link", "") or "").lower():
+    hay = (_safe_str(d.get("title", "")) + " " + _safe_str(d.get("snippet", ""))).lower()
+    if "archived" in hay or "/archive" in _safe_str(d.get("link", "")).lower():
         base = _age_fields_from_dt(None, "none", "unknown")
         base["is_archived"] = True
         base["age_bucket"] = "archived"
@@ -180,7 +180,9 @@ def _normalize_post(p):
         platform = "Web"
         if not title and not link:
             return None
-        return {"title": title[:300], "link": link.strip(), "snippet": snippet[:800], "platform": platform}
+        _od = {"title": title, "link": link, "snippet": snippet, "published": getattr(p, "published", ""), "published_parsed": getattr(p, "published_parsed", ""), "updated_parsed": getattr(p, "updated_parsed", ""), "date": getattr(p, "date", "")}
+        _age2 = _extract_age_from_dict(_od)
+        return {"title": title[:300], "link": link.strip(), "snippet": snippet[:800], "platform": platform, **_age2}
     except Exception:
         return None
 
