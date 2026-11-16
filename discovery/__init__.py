@@ -425,6 +425,16 @@ def run_discovery_with_stats(seen_urls=None, search_terms=None, progress_cb=None
     # --- STEP 2 DEEP DISCOVERY (v4.8) ---
     # Only for kept candidates (max ~23), 0 Gemini calls. Weeds out title-matches where body does not fit.
     try:
+    # Phase 8: Custom skips Gravitas Deep check - Deep still uses L&D logic, would weed all complaint posts
+    if relevance_keywords:
+        stats["deep_checked"] = 0
+        stats["deep_kept"] = len(kept)
+        stats["deep_weeded"] = 0
+        stats["deep_weeded_titles"] = []
+        stats["kept_for_assessment"] = len(kept)
+        stats["deep_weeded_posts"] = []
+        return kept, stats
+    try:
         from discovery.deep import run_deep_discovery
         kept2, deep_stats, weeded = run_deep_discovery(kept, max_posts=23, progress_cb=progress_cb)
         stats["deep_checked"] = deep_stats.get("deep_checked", 0)
