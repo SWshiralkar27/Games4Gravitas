@@ -71,6 +71,43 @@ if st.session_state["book_mode"] == "Custom Book (live)":
 else:
     st.sidebar.caption("Gravitas — fixed settings")
 #------end of block------
+# --- Phase 2: Stage 0 — Book Identity (Custom only) ---
+# Used in Drafts only in Phase 5. Phase 2 only collects and saves it. Gravitas is untouched.
+if "custom_profile" not in st.session_state:
+    st.session_state["custom_profile"] = {
+        "book_title": "",
+        "book_promise": "",
+        "draft_voice": "Empathetic",
+    }
+
+if st.session_state["book_mode"] == "Custom Book (live)":
+    with st.sidebar.expander("Stage 0 — Book Identity", expanded=True):
+        st.caption("Used in Drafts only. Does not affect Discovery.")
+        st.session_state["custom_profile"]["book_title"] = st.text_input(
+            "Book Title",
+            value=st.session_state["custom_profile"].get("book_title", ""),
+            placeholder="Customer Complaint Resolution",
+            help="Name of the book the drafts will mention. Used only in Drafts, not in Discovery."
+        )
+        st.session_state["custom_profile"]["book_promise"] = st.text_input(
+            "Book Promise in one line",
+            value=st.session_state["custom_profile"].get("book_promise", ""),
+            placeholder="Help teams turn an angry customer into a loyal one",
+            help="What the book helps the reader do. Used in drafts to keep the mention honest."
+        )
+        st.session_state["custom_profile"]["draft_voice"] = st.selectbox(
+            "Draft Voice",
+            ["Empathetic", "Coaching", "Direct", "Playful"],
+            index=["Empathetic", "Coaching", "Direct", "Playful"].index(st.session_state["custom_profile"].get("draft_voice", "Empathetic")),
+            help="Tone of the comment. Empathetic is best for complaints, Coaching for learning."
+        )
+        if st.session_state["custom_profile"].get("book_title"):
+            st.caption(f"Custom Book: {st.session_state['custom_profile']['book_title']}")
+        else:
+            st.caption("Fill Book Title to start Custom setup.")
+else:
+    st.sidebar.caption("Gravitas — fixed settings. No Custom fields.")
+    #----ADDED for new book -16NOV26----------------
 # --- Discovery with diagnostic ---
 _DISCOVERY_ERR = None
 _DISCOVERY_ERR_FULL = ""
