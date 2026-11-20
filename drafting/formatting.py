@@ -1,9 +1,18 @@
-"""drafting/formatting.py — v4.3 with v2.2 Plain-Text & Link Sanitization."""
+"""drafting/formatting.py — v4.4 with v3.0 Sentence-per-Block & Italics-Only."""
 from __future__ import annotations
 import re
 from config import ABBREVIATIONS, BOOK_TITLE, BOOK_LINK, BOOK_NAME_YOUTUBE, ITALIC_KEYWORDS, PLAIN_TEXT_PLATFORMS
 
 _URL_RE = re.compile(r"https?://[^\s\)\]]+")
+
+# Abbreviations that must never end a sentence, merged with config ABBREVIATIONS.
+# ITALIC_KEYWORDS is kept in the import for backward compatibility, but it is
+# no longer auto-applied. Auto-italicising keywords would violate Rule 2.
+_DEFAULT_ABBRS = [
+    "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "St.", "vs.", "etc.",
+    "e.g.", "i.e.", "a.m.", "p.m.", "Ph.D.", "M.D.", "U.S.", "U.K.", "U.S.A.",
+    "No.", "Fig.", "Vol.", "pp.", "approx.", "appt.", "dept.",
+]
 
 def _protect_urls(text):
     urls = []
@@ -19,7 +28,9 @@ def _restore_urls(text, urls):
 
 def _protect_abbreviations(text):
     placeholders = {}
-    for abbr in ABBREVIATIONS:
+    # Longest first so U.S.A. is protected before U.S.
+    all_abbrs = sorted(set(list(ABBREVIATIONS) + _DEFAULT_ABBRS), key=len, reverse=True)
+    for abbr in all_abbrs:
         if abbr in text:
             key = f"\x00ABBR{len(placeholders)}\x00"
             placeholders[key] = abbr
@@ -31,69 +42,162 @@ def _restore_abbreviations(text, placeholders):
         text = text.replace(k, v)
     return text
 
-def _bold_book_title(text):
-    parts = re.split(r"(\*\*.*?\*\*)", text)
-    out = []
-    for part in parts:
-        if part.startswith("**") and part.endswith("**"):
-            out.append(part)
-        else:
-            out.append(re.sub(
-                r"(?<!\*)\bGames for Gravitas\b(?!\*)",
-                "**Games for Gravitas**",
-                part, flags=re.I,
-            ))
-    return "".join(out)
+def _strip_bold_underline(text):
+    # Rule 2: no bold, no underline for emphasis. Keep single *italics*.
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = text.replace("**", "").replace("__", "")
+    return text
 
-def _italicise_keywords(text):
-    keywords = sorted(ITALIC_KEYWORDS, key=len, reverse=True)
-    parts = re.split(r"(\*\*.*?\*\*|\*[^*]+?\*)", text)
-    out = []
-    for part in parts:
-        if not part:
-            continue
-        if (part.startswith("**") and part.endswith("**")) or (part.startswith("*") and part.endswith("*") and not part.startswith("**")):
-            out.append(part)
-            continue
-        for kw in keywords:
-            part = re.sub(
-                r"(?<!\*)\b" + re.escape(kw) + r"\b(?!\*)",
-                lambda m: f"*{m.group(0)}*",
-                part, flags=re.I,
-            )
-        out.append(part)
-    return "".join(out)
+def _enforce_italics_limit(block: str) -> str:
+    # Keep author's *italics*, but max 2 phrases per sentence/block.
+    # Extra phrases keep their words, lose the asterisks.
+    count = [0]
+    def _repl(m):
+        count[0] += 1
+        if count[0] <= 2:
+            return m.group(0)
+        return m.group(1)
+    return re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", _repl, block)
 
-def _break_after_full_stop(text):
-    text, abbr_map = _protect_abbreviations(text)
+def _split_sentences(paragraph: str) -> list[str]:
+    if not paragraph.strip():
+        return []
+    text = paragraph.strip()
+    # 1. Protect URLs so we never split inside them
+    text, urls = _protect_urls(text)
+    # 2. Protect ellipsis
+    text = text.replace("...", "\x00ELLIPSIS\x00")
+    # 3. Protect decimals like 3.5
     decimals = {}
     def _dec_repl(m):
         k = f"\x00DEC{len(decimals)}\x00"
         decimals[k] = m.group(0)
         return k
     text = re.sub(r"\d+\.\d+", _dec_repl, text)
-    text = re.sub(r"\.\s+", ".\n\n", text)
-    text = re.sub(r"\.\n(?!\n)", ".\n\n", text)
-    for k, v in decimals.items():
-        text = text.replace(k, v)
-    text = _restore_abbreviations(text, abbr_map)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return text
+    # 4. Protect abbreviations like Dr., e.g., i.e.
+    text, abbr_map = _protect_abbreviations(text)
+    # 5. Protect acronyms with dots that slipped through
+    acronyms = {}
+    def _acr_repl(m):
+        k = f"\x00ACR{len(acronyms)}\x00"
+        acronyms[k] = m.group(0)
+        return k
+    text = re.sub(r"\b(?:[A-Z]\.){2,}", _acr_repl, text)
+    # 6. Protect single initials: J. K. Rowling or A. Sharma
+    initials = {}
+    def _init_repl(m):
+        k = f"\x00INIT{len(initials)}\x00"
+        initials[k] = m.group(0)
+        return k
+    text = re.sub(r"\b[A-Z]\.(?=\s+[A-Z])", _init_repl, text)
+    # 7. Mark real sentence boundaries: . ? ! plus optional closing quote/paren,
+    # then whitespace, then capital/digit/opening quote. Use a function repl
+    # so the \x00 marker is not parsed as a regex escape.
+    text = re.sub(
+        r"([.?!][\"'”\)\]]?)\s+(?=[\"'“‘\(\[]?[A-Z0-9])",
+        lambda m: m.group(1) + "\x00SENT_SPLIT\x00",
+        text,
+    )
+    parts = text.split("\x00SENT_SPLIT\x00")
+    out = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        for k, v in initials.items():
+            p = p.replace(k, v)
+        for k, v in acronyms.items():
+            p = p.replace(k, v)
+        p = _restore_abbreviations(p, abbr_map)
+        for k, v in decimals.items():
+            p = p.replace(k, v)
+        p = p.replace("\x00ELLIPSIS\x00", "...")
+        p = _restore_urls(p, urls)
+        out.append(p)
+    return out
+
+def _format_blocks(text: str, plain: bool) -> str:
+    lines = text.splitlines()
+    blocks: list[str] = []
+    para_buf: list[str] = []
+
+    def _flush_para():
+        if not para_buf:
+            return
+        para = " ".join(p.strip() for p in para_buf if p.strip())
+        para_buf.clear()
+        if not para:
+            return
+        for s in _split_sentences(para):
+            s = s.strip()
+            if not s:
+                continue
+            if not plain:
+                s = _enforce_italics_limit(s)
+            blocks.append(s)
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped:
+            _flush_para()
+            continue
+        # Headings: # Heading counts as one block
+        if stripped.startswith("#"):
+            _flush_para()
+            heading = stripped.lstrip("#").strip()
+            if not plain:
+                heading = _strip_bold_underline(heading)
+                heading = _enforce_italics_limit(heading)
+                hashes = stripped[:len(stripped) - len(stripped.lstrip("#"))]
+                blocks.append(f"{hashes} {heading}".strip())
+            else:
+                blocks.append(heading)
+            continue
+        # Bullets: - item / * item / • item
+        m_bullet = re.match(r"^(\s*[-*•]\s+)(.+)$", raw_line)
+        # Numbered: 1. item / 1) item
+        m_num = re.match(r"^(\s*\d+[.)]\s+)(.+)$", raw_line)
+        if m_bullet:
+            _flush_para()
+            prefix, content = m_bullet.groups()
+            # Normalise bullet to - so a leading * is not mistaken for italics
+            prefix = re.sub(r"[-*•]", "-", prefix, count=1)
+            for s in _split_sentences(content.strip()):
+                s = s.strip()
+                if not s:
+                    continue
+                if not plain:
+                    s = _enforce_italics_limit(s)
+                blocks.append(f"{prefix}{s}")
+            continue
+        if m_num:
+            _flush_para()
+            prefix, content = m_num.groups()
+            num_m = re.search(r"\d+", prefix)
+            num = int(num_m.group(0)) if num_m else 1
+            sep = "." if "." in prefix else ")"
+            leading = re.match(r"^\s*", prefix).group(0)
+            for i, s in enumerate(_split_sentences(content.strip())):
+                s = s.strip()
+                if not s:
+                    continue
+                if not plain:
+                    s = _enforce_italics_limit(s)
+                blocks.append(f"{leading}{num + i}{sep} {s}")
+            continue
+        # Regular line: accumulate into current paragraph
+        para_buf.append(stripped)
+    _flush_para()
+    return "\n\n".join(blocks)
 
 def word_range(platform: str) -> tuple[int, int]:
     return (70, 90)
 
 def book_mention_form(platform: str, variant: int = 0) -> str:
-    # 2026-11-11: Fix - bold only, no Amazon link. Reason: placeholder YOUR_BOOK_ID leaked into Copy box as raw markdown.
-    # 2026-11-11: Fix - added variant param + fixed indent. Reason: old code had dead code after return with wrong indent + undefined variant -> IndentationError.
-    if platform in PLAIN_TEXT_PLATFORMS:
-        return "Games for Gravitas"
-    if variant == 0:
-        return f"**{BOOK_TITLE}**"
-    elif variant == 1:
-        return f"*{BOOK_TITLE}*"
-    else:
-        return "Games for Gravitas"
+    # v4.4: Rule 2 forbids bold for emphasis. Always return plain title.
+    # variant kept for backward compatibility, ignored.
+    return "Games for Gravitas"
 
 def format_for_platform(draft: str, platform: str) -> str:
     if not draft:
@@ -105,20 +209,19 @@ def format_for_platform(draft: str, platform: str) -> str:
     if plain:
         text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
         text = re.sub(r"https?://\S+", "", text)
+        text = re.sub(r"(?m)^\s*[*•]\s+", "- ", text)
         text = text.replace("**", "").replace("*", "").replace("_", "")
         text = re.sub(r"\s{2,}", " ", text).strip()
-        # 2026-11-11: Fix - plain platforms still get line break after every full stop.
-        text = _break_after_full_stop(text)
+        text = _format_blocks(text, plain=True)
         return text
 
     # Rich text platforms
+    text = _strip_bold_underline(text)
+    # Protect URLs across the whole draft so _split_sentences never breaks them
     text, urls = _protect_urls(text)
-    text = _bold_book_title(text)
-    text = _italicise_keywords(text)
+    text = _format_blocks(text, plain=False)
     text = _restore_urls(text, urls)
-    text, urls2 = _protect_urls(text)
-    text = _break_after_full_stop(text)
-    text = _restore_urls(text, urls2)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
 
 def format_for_display(draft: str, platform: str = "Medium") -> str:
