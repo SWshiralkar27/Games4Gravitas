@@ -129,3 +129,9 @@ GROK_API_URL = GROQ_API_URL
 
 # Fallback model suggestion when 3.8 Flash is out
 QUOTA_FALLBACK_MODEL = "gemini-3.1-flash-lite"
+
+# 2026-11-21: Option C reviewer (reviewer_client.py). Additive only, nothing above changed.
+# Secrets: REVIEWER_PROVIDER = gemini (default) | anthropic | openai ; REVIEWER_API_KEY and REVIEWER_MODEL for anthropic/openai.
+REVIEWER_PROVIDER = _os.getenv("REVIEWER_PROVIDER", "") or "gemini"
+REVIEWER_MODEL = _os.getenv("REVIEWER_MODEL", "")
+REVIEWER_GEMINI_MODEL = QUOTA_FALLBACK_MODEL  # separate free quota from GEMINI_MODEL (500/day vs 20/day)

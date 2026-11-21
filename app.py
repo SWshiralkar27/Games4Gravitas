@@ -1,5 +1,6 @@
 # app.py - v4.9.3.6 - Compact sidebar + copyable discovery error + Discovery diagnostic + Stage 5C Groq only + Assess Groq fix
 # Root: app.py
+# 2026-11-21: Added Option C reviewer (reviewer_client.py): fitment verdict + alternative draft. Additive only.
 # 2026-11-12: v4.9.3.6 - Fix Assess Groq skipped + Assess JSON parse + Draft duplicate header + Option B note + Quota reboot reset + Backward compat
 import os, json, re
 
@@ -53,6 +54,18 @@ except Exception:
     class GroqQuotaExceeded(Exception): pass
     class GroqTransientError(Exception): pass
     GROQ_MODEL = "openai/gpt-oss-20b"
+# --- Option C reviewer (2026-11-21). Import error is stored and shown in the UI, never swallowed. ---
+try:
+    from reviewer_client import ReviewerClient
+except Exception as _rev_e:
+    ReviewerClient = None
+    _REVIEWER_IMPORT_ERR = _rev_e
+else:
+    _REVIEWER_IMPORT_ERR = None
+try:
+    from config import REVIEWER_GEMINI_MODEL
+except Exception:
+    REVIEWER_GEMINI_MODEL = "gemini-3.1-flash-lite"
 #---adding a radio button for new books----
 # --- Phase 1: Book Mode — Frozen + Live ---
 # Gravitas is frozen. Custom Book will use live panel fields in Phase 2. Phase 1 only adds the radio, no downstream change.
@@ -800,6 +813,29 @@ if st.session_state.assessed:
                     st.code(_fall, language="markdown")
                     st.caption("Fallback from grounding document - template from book grounding.")
 
+                # 2026-11-21: Option C - independent reviewer checks the Groq draft (or Gemini if Groq is empty) and offers an alternative.
+                # Fail-open: any error is shown, Options A/B above are never affected. Decision/score/theme are never changed.
+                st.subheader("3. Option C - Reviewer fitment check + alternative" if _src != "fallback" else "4. Option C - Reviewer fitment check + alternative")
+                if ReviewerClient is None:
+                    st.error(f"Reviewer failed to import: {_REVIEWER_IMPORT_ERR}")
+                else:
+                    _to_review = _groq or _gem
+                    _rv_label = "Groq (Option B)" if _groq else "Gemini (Option A)"
+                    with st.spinner("Reviewer is checking fitment..."):
+                        try:
+                            _rv = ReviewerClient(gemini_model=REVIEWER_GEMINI_MODEL)
+                            _rv_out = _rv.review(post, _to_review, post.get("decision"), post.get("platform", "Web"))
+                        except Exception as _rve:
+                            _rv_out = {"error": f"Reviewer crashed: {_rve}", "alternative": "", "verdict": "", "reason": "", "provider": "?", "model": "?"}
+                    if _rv_out.get("verdict"):
+                        st.caption(f"Fitment of {_rv_label}: {_rv_out.get('verdict')} - {_rv_out.get('reason')}")
+                    if _rv_out.get("alternative"):
+                        st.markdown(_rv_out["alternative"])
+                        st.code(_rv_out["alternative"], language="markdown")
+                        st.caption(f"Reviewer: {_rv_out.get('provider')} / {_rv_out.get('model')}")
+                    else:
+                        st.caption(f"Reviewer alternative not available. {_rv_out.get('error') or ''}")
+
 # --- Dual-Engine Debug & Diagnostic ---
 with st.expander("Dual-Engine Debug & Diagnostic"):
     col_g1, col_g2 = st.columns(2)
@@ -827,6 +863,15 @@ with st.expander("Dual-Engine Debug & Diagnostic"):
                     else: st.success(f"Groq OK: {gc.generate('Say Hi in 2 words.')}")
                 except Exception as ge: st.error(f"Groq failed: {ge}")
     st.write(f"GEMINI_MODEL: {GEMINI_MODEL} | GROQ_MODEL: {GROQ_MODEL}")
+    if st.button("Test Reviewer now", key="test_reviewer_diag_v4100"):
+        if ReviewerClient is None:
+            st.error(f"Reviewer failed to import: {_REVIEWER_IMPORT_ERR}")
+        else:
+            try:
+                _rt = ReviewerClient(gemini_model=REVIEWER_GEMINI_MODEL)
+                if not _rt.is_ready(): st.error(f"Reviewer init failed: {_rt.init_error}")
+                else: st.success(f"Reviewer OK ({_rt.provider} / {_rt.model}): {_rt.test()}")
+            except Exception as _rte: st.error(f"Reviewer failed: {_rte}")
 
 st.subheader("Last Run log")
 st.code("\n".join(st.session_state.last_run_log) if st.session_state.last_run_log else "No runs yet.")
